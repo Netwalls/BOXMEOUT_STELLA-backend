@@ -1,217 +1,203 @@
-// backend/src/services/market.service.ts - Market Logic & State Management
-// Business logic for markets, predictions, settlements
+// Market service - business logic for market management
+import { MarketRepository } from '../repositories/market.repository.js';
+import { PredictionRepository } from '../repositories/prediction.repository.js';
+import { MarketCategory, MarketStatus } from '@prisma/client';
+import { executeTransaction } from '../database/transaction.js';
 
-/*
-TODO: Create Market Service
-- Import database connection
-- Import blockchain service
-- Import cache service (Redis)
-- Implement market lifecycle management
-*/
+export class MarketService {
+  private marketRepository: MarketRepository;
+  private predictionRepository: PredictionRepository;
 
-/*
-TODO: Create Market
-- Validate market data: title, description, category, closing_time
-- Check admin authorization
-- Call blockchain.create_market() to get contract_address
-- Store in database: markets table (title, description, category, creator_id, contract_address, status, created_at, closing_at)
-- Initialize market state: status=OPEN, total_volume=0, participant_count=0
-- Initialize pools: yes_pool=0, no_pool=0 (will be populated by AMM)
-- Emit event: MarketCreated (for WebSocket subscribers)
-- Return market object with market_id
-*/
+  constructor() {
+    this.marketRepository = new MarketRepository();
+    this.predictionRepository = new PredictionRepository();
+  }
 
-/*
-TODO: Get Market Details
-- Query database for market record
-- Query blockchain for current odds (AMM contract)
-- Query blockchain for market state
-- Aggregate data: combine DB + blockchain
-- Include live metrics: current_odds, total_volume_24h, participant_count
-- Calculate: time_until_close, status
-- Return full market object
-*/
+  async createMarket(data: {
+    contractAddress: string;
+    title: string;
+    description: string;
+    category: MarketCategory;
+    creatorId: string;
+    outcomeA: string;
+    outcomeB: string;
+    closingAt: Date;
+  }) {
+    // Validate closing time is in the future
+    if (data.closingAt <= new Date()) {
+      throw new Error('Closing time must be in the future');
+    }
 
-/*
-TODO: List Markets
-- Query database with filters: category, status, sort order
-- Apply pagination: offset, limit
-- For each market: fetch odds from cache (or blockchain if not cached)
-- Calculate relevance score: volume * recent_activity
-- Sort and return paginated results
-*/
+    // Validate title length
+    if (data.title.length < 5 || data.title.length > 200) {
+      throw new Error('Title must be between 5 and 200 characters');
+    }
 
-/*
-TODO: Close Market
-- Validate market is in OPEN status
-- Validate closing_at timestamp (allow close early if no active commits)
-- Call blockchain.close_market(market_id)
-- Update database: status=CLOSED, closed_at=NOW
-- Stop accepting new predictions
-- Freeze AMM (no more trades) - or wait for resolution
-- Emit event: MarketClosed
-*/
+    // Check contract address uniqueness
+    const existing = await this.marketRepository.findByContractAddress(
+      data.contractAddress
+    );
+    if (existing) {
+      throw new Error('Contract address already exists');
+    }
 
-/*
-TODO: Resolve Market
-- Wait for oracle consensus (check every 10 seconds)
-- When consensus reached: call blockchain.resolve_market()
-- Get winning_outcome from blockchain
-- Update database: status=RESOLVED, resolved_at=NOW, winning_outcome
-- Calculate winnings for each participant
-- Queue reward distribution (async job)
-- Emit event: MarketResolved
-*/
+    return await this.marketRepository.createMarket(data);
+  }
 
-/*
-TODO: Distribute Winnings
-- Query all users with winning shares
-- For each winner: calculate shares * winning_price
-- Subtract 10% platform fee
-- Queue treasury deposit (record fee)
-- Execute payout: call blockchain.claim_winnings() for each winner
-- Update database: record payout, mark as settled
-- If async: batch process to avoid timeout
-*/
+  async getMarketDetails(marketId: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) {
+      throw new Error('Market not found');
+    }
 
-/*
-TODO: Dispute Market Resolution
-- Validate market is RESOLVED
-- Validate within 7-day dispute window: now - resolved_at < 7 days
-- Create dispute record in database: user_id, market_id, reason, evidence_url
-- Update market status: DISPUTED (pause winnings distribution)
-- Notify admin/oracle
-- Queue dispute review process
-- Emit event: MarketDisputed
-*/
+    // Get prediction statistics
+    const predictionStats = await this.predictionRepository.getMarketPredictionStats(
+      marketId
+    );
 
-/*
-TODO: Cancel Market (Creator Emergency)
-- Validate market creator authorization
-- Validate market is OPEN (not closed/resolved)
-- Check no recent market-closing predictions (prevent cancel gaming)
-- Calculate refund: sum of all user commitments
-- Call blockchain.cancel_market()
-- Payout all participants (full refund)
-- Update database: status=CANCELLED
-- Emit event: MarketCancelled
-*/
+    return {
+      ...market,
+      predictionStats,
+    };
+  }
 
-/*
-TODO: Commit Prediction
-- Validate user authenticated
-- Validate market is OPEN
-- Generate salt: random hex string
-- Calculate commitment_hash: keccak256(prediction + salt)
-- Store commitment in database: user_id, market_id, commitment_hash (no prediction yet!)
-- Send salt to user securely (cannot be stored in database for privacy)
-- Call blockchain.commit_prediction(commitment_hash, amount_usdc)
-- Deduct amount from user balance (hold in escrow until reveal)
-- Return: commitment_id, salt (user saves this)
-- Emit event: PredictionCommitted
-*/
+  async listMarkets(options?: {
+    category?: MarketCategory;
+    status?: MarketStatus;
+    skip?: number;
+    take?: number;
+  }) {
+    if (options?.status === MarketStatus.OPEN) {
+      return await this.marketRepository.findActiveMarkets({
+        category: options.category,
+        skip: options.skip,
+        take: options.take,
+      });
+    }
 
-/*
-TODO: Reveal Prediction
-- Validate commitment exists
-- Accept salt and prediction from user
-- Recalculate commitment_hash locally: keccak256(prediction + salt)
-- Verify matches stored commitment
-- If mismatch: return 400 (user provided wrong salt/prediction)
-- Call blockchain.reveal_prediction(prediction, salt)
-- Update database: store actual prediction
-- Update market stats: participant_count++
-- Return success
-- Emit event: PredictionRevealed
-*/
+    return await this.marketRepository.findMany({
+      where: {
+        ...(options?.category && { category: options.category }),
+        ...(options?.status && { status: options.status }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: options?.skip,
+      take: options?.take || 20,
+    });
+  }
 
-/*
-TODO: Buy Shares
-- Validate user authenticated and market OPEN
-- Validate outcome in [YES, NO]
-- Validate amount_usdc > 0 and user has balance
-- Query current odds from cache/blockchain
-- Calculate min_shares (with 2% slippage tolerance)
-- Call blockchain.buy_shares(amount_usdc, min_shares)
-- If success: update user balance, record purchase
-- If fails: return error (slippage or insufficient liquidity)
-- Update market volume
-- Emit event: BuyShares
-- Return shares received
-*/
+  async closeMarket(marketId: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) {
+      throw new Error('Market not found');
+    }
 
-/*
-TODO: Sell Shares
-- Validate user owns shares
-- Validate shares_to_sell > 0 and <= balance
-- Query current odds
-- Calculate min_payout with slippage tolerance
-- Call blockchain.sell_shares(shares, min_payout)
-- If success: credit user with proceeds, burn shares
-- Update market volume
-- Emit event: SellShares
-- Return proceeds
-*/
+    if (market.status !== MarketStatus.OPEN) {
+      throw new Error('Market is not open');
+    }
 
-/*
-TODO: Calculate User's Unrealized PnL
-- Query all open positions for user (active markets)
-- For each: shares_owned * current_market_price
-- If outcome won: mark unrealized_gain (not claimed yet)
-- If outcome lost: mark unrealized_loss
-- Aggregate: total_unrealized_pnl = sum of all
-- Calculate: roi_pct = pnl / total_invested
-- Cache for 1 minute
-*/
+    return await this.marketRepository.updateMarketStatus(
+      marketId,
+      MarketStatus.CLOSED,
+      { closedAt: new Date() }
+    );
+  }
 
-/*
-TODO: Get User's All Positions
-- Query database: all purchases/sales by user across markets
-- Filter to open markets only (exclude resolved)
-- For each market: calculate current_value using current_odds
-- Calculate unrealized_pnl
-- Group by outcome (YES/NO)
-- Return: market_id, title, shares, outcome, current_value, unrealized_pnl
-- Sort by: unrealized_pnl DESC
-*/
+  async resolveMarket(marketId: string, winningOutcome: number, resolutionSource: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) {
+      throw new Error('Market not found');
+    }
 
-/*
-TODO: Get Prediction History
-- Query all predictions/trades for user (all-time)
-- Include closed/resolved markets
-- For resolved markets: include final_pnl (settled)
-- For open markets: include unrealized_pnl
-- Pagination: offset, limit
-- Sort by: date DESC
-- Include: average_cost_basis for tax reporting
-*/
+    if (market.status !== MarketStatus.CLOSED) {
+      throw new Error('Market must be closed before resolution');
+    }
 
-/*
-TODO: Market Statistics
-- Calculate: total_volume_all_time, total_volume_24h, volume_7d
-- Calculate: participant_count, avg_bet_size
-- Calculate: winning_outcome_pct (what % predicted correctly)
-- Calculate: market_accuracy (how many resolved with clear winner)
-- Return all as metrics object
-- Cache 1 hour
-*/
+    if (winningOutcome !== 0 && winningOutcome !== 1) {
+      throw new Error('Winning outcome must be 0 or 1');
+    }
 
-/*
-TODO: Price History
-- Store historical odds snapshots every 5 minutes
-- Query for charting: odds_over_time for specified market
-- Return: timestamps, yes_odds, no_odds (for line chart)
-- Allow: timeframe (1h, 24h, 7d, all)
-- Cache 1 hour
-*/
+    // Update market status
+    const resolvedMarket = await this.marketRepository.updateMarketStatus(
+      marketId,
+      MarketStatus.RESOLVED,
+      {
+        resolvedAt: new Date(),
+        winningOutcome,
+        resolutionSource,
+      }
+    );
 
-/*
-TODO: Background Jobs
-- Update market statuses: periodically check if closing_at passed -> close market
-- Monitor oracle consensus: every 10 seconds for CLOSED markets
-- Calculate leaderboard: hourly update of user rankings
-- Archive resolved markets: move old resolved to archive DB (>30 days)
-- Sync blockchain state: every 5 minutes reconcile with Stellar
-*/
+    // Settle all predictions
+    await this.settlePredictions(marketId, winningOutcome);
 
-export default {};
+    return resolvedMarket;
+  }
+
+  private async settlePredictions(marketId: string, winningOutcome: number) {
+    const predictions = await this.predictionRepository.findMarketPredictions(marketId);
+
+    await executeTransaction(async (tx) => {
+      const predictionRepo = new PredictionRepository(tx);
+
+      for (const prediction of predictions) {
+        const isWinner = prediction.predictedOutcome === winningOutcome;
+        
+        // Calculate PnL (simplified - actual calculation would involve odds)
+        const pnlUsd = isWinner
+          ? Number(prediction.amountUsdc) * 0.9 // 90% return (10% fee)
+          : -Number(prediction.amountUsdc);
+
+        await predictionRepo.settlePrediction(prediction.id, isWinner, pnlUsd);
+      }
+    });
+  }
+
+  async cancelMarket(marketId: string, creatorId: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) {
+      throw new Error('Market not found');
+    }
+
+    if (market.creatorId !== creatorId) {
+      throw new Error('Only market creator can cancel');
+    }
+
+    if (market.status === MarketStatus.RESOLVED) {
+      throw new Error('Cannot cancel resolved market');
+    }
+
+    return await this.marketRepository.updateMarketStatus(
+      marketId,
+      MarketStatus.CANCELLED
+    );
+  }
+
+  async getTrendingMarkets(limit: number = 10) {
+    return await this.marketRepository.getTrendingMarkets(limit);
+  }
+
+  async getMarketsByCategory(
+    category: MarketCategory,
+    skip?: number,
+    take?: number
+  ) {
+    return await this.marketRepository.getMarketsByCategory(category, skip, take);
+  }
+
+  async getMarketsByCreator(creatorId: string) {
+    return await this.marketRepository.findMarketsByCreator(creatorId);
+  }
+
+  async updateMarketVolume(marketId: string, volumeChange: number) {
+    return await this.marketRepository.updateMarketVolume(marketId, volumeChange);
+  }
+
+  async getMarketStatistics() {
+    return await this.marketRepository.getMarketStatistics();
+  }
+
+  async getClosingMarkets(withinHours: number = 24) {
+    return await this.marketRepository.getClosingMarkets(withinHours);
+  }
+}

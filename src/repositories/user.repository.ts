@@ -52,7 +52,10 @@ export class UserRepository extends BaseRepository<User> {
     });
   }
 
-  async updateWalletAddress(userId: string, walletAddress: string): Promise<User> {
+  async updateWalletAddress(
+    userId: string,
+    walletAddress: string
+  ): Promise<User> {
     return await this.prisma.user.update({
       where: { id: userId },
       data: { walletAddress },
@@ -73,7 +76,7 @@ export class UserRepository extends BaseRepository<User> {
     });
   }
 
-  async searchUsers(query: string, limit: number = 10) {
+  async searchUsers(query: string, limit: number = 10): Promise<Partial<User>[]> {
     return await this.prisma.user.findMany({
       where: {
         OR: [

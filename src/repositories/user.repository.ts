@@ -30,6 +30,7 @@ export class UserRepository extends BaseRepository<User> {
     username: string;
     passwordHash: string;
     displayName?: string;
+    walletAddress?: string;
   }): Promise<User> {
     return await this.prisma.user.create({
       data,

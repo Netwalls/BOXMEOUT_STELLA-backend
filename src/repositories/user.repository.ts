@@ -73,7 +73,7 @@ export class UserRepository extends BaseRepository<User> {
     });
   }
 
-  async searchUsers(query: string, limit: number = 10): Promise<User[]> {
+  async searchUsers(query: string, limit: number = 10) {
     return await this.prisma.user.findMany({
       where: {
         OR: [
@@ -91,7 +91,7 @@ export class UserRepository extends BaseRepository<User> {
         tier: true,
         reputationScore: true,
         createdAt: true,
-      } as any,
+      },
     });
   }
 

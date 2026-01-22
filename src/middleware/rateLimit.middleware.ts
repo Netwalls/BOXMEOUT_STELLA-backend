@@ -14,11 +14,11 @@ function createRedisStore(prefix: string) {
   try {
     return new RedisStore({
       // Use sendCommand for ioredis compatibility
-      // @ts-expect-error - ioredis sendCommand types
-      sendCommand: async (...args: string[]) => {
+      sendCommand: (async (...args: string[]) => {
         const client = getRedisClient();
-        return client.call(...args);
-      },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (client as any).call(...args);
+      }) as any,
       prefix: `rl:${prefix}:`,
     });
   } catch (error) {

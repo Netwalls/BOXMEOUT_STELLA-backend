@@ -11,6 +11,7 @@ config();
 
 // Import routes
 import authRoutes from './routes/auth.routes.js';
+import marketRoutes from './routes/markets.routes.js';
 
 // Import Redis initialization
 import { initializeRedis, closeRedisConnection, getRedisStatus } from './config/redis.js';
@@ -89,9 +90,11 @@ app.use('/api', apiRateLimiter);
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
+// Market routes
+app.use('/api/markets', marketRoutes);
+
 // TODO: Add other routes as they are implemented
 // app.use('/api/users', userRoutes);
-// app.use('/api/markets', marketRoutes);
 // app.use('/api/predictions', predictionRoutes);
 // app.use('/api/leaderboard', leaderboardRoutes);
 
@@ -197,7 +200,13 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Start the server
-startServer();
+// Start the server if runs directly
+import { fileURLToPath } from 'url';
 
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startServer();
+}
+
+export { startServer };
 export default app;
+

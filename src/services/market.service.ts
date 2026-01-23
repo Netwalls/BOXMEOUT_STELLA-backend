@@ -3,6 +3,7 @@ import { MarketRepository } from '../repositories/market.repository.js';
 import { PredictionRepository } from '../repositories/prediction.repository.js';
 import { MarketCategory, MarketStatus } from '@prisma/client';
 import { executeTransaction } from '../database/transaction.js';
+import { factoryService } from './blockchain/factory.js';
 
 export class MarketService {
   private marketRepository: MarketRepository;
@@ -14,14 +15,15 @@ export class MarketService {
   }
 
   async createMarket(data: {
-    contractAddress: string;
     title: string;
     description: string;
     category: MarketCategory;
     creatorId: string;
+    creatorPublicKey: string;
     outcomeA: string;
     outcomeB: string;
     closingAt: Date;
+    resolutionTime?: Date;
   }) {
     // Validate closing time is in the future
     if (data.closingAt <= new Date()) {
@@ -33,16 +35,55 @@ export class MarketService {
       throw new Error('Title must be between 5 and 200 characters');
     }
 
-    // Check contract address uniqueness
-    const existing = await this.marketRepository.findByContractAddress(
-      data.contractAddress
-    );
-    if (existing) {
-      throw new Error('Contract address already exists');
+    // Validate description length
+    if (data.description.length < 10 || data.description.length > 5000) {
+      throw new Error('Description must be between 10 and 5000 characters');
     }
 
-    return await this.marketRepository.createMarket(data);
+    // Default resolution time to 24 hours after closing if not provided
+    const resolutionTime = data.resolutionTime || new Date(data.closingAt.getTime() + 24 * 60 * 60 * 1000);
+
+    // Validate resolution time is after closing time
+    if (resolutionTime <= data.closingAt) {
+      throw new Error('Resolution time must be after closing time');
+    }
+
+    try {
+      // Call blockchain factory to create market on-chain
+      const blockchainResult = await factoryService.createMarket({
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        closingTime: data.closingAt,
+        resolutionTime: resolutionTime,
+        creator: data.creatorPublicKey,
+      });
+
+      // Store market in database with transaction hash
+      const market = await this.marketRepository.createMarket({
+        contractAddress: blockchainResult.marketId,
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        creatorId: data.creatorId,
+        outcomeA: data.outcomeA,
+        outcomeB: data.outcomeB,
+        closingAt: data.closingAt,
+      });
+
+      return {
+        ...market,
+        txHash: blockchainResult.txHash,
+        blockchainMarketId: blockchainResult.marketId,
+      };
+    } catch (error) {
+      console.error('Market creation error:', error);
+      throw new Error(
+        `Failed to create market: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
+
 
   async getMarketDetails(marketId: string) {
     const market = await this.marketRepository.findById(marketId);

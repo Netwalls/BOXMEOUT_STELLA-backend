@@ -12,6 +12,7 @@ config();
 // Import routes
 import authRoutes from './routes/auth.routes.js';
 import marketRoutes from './routes/markets.routes.js';
+import oracleRoutes from './routes/oracle.js';
 
 // Import Redis initialization
 import { initializeRedis, closeRedisConnection, getRedisStatus } from './config/redis.js';
@@ -92,6 +93,7 @@ app.use('/api/auth', authRoutes);
 
 // Market routes
 app.use('/api/markets', marketRoutes);
+app.use('/api/markets', oracleRoutes);
 
 // TODO: Add other routes as they are implemented
 // app.use('/api/users', userRoutes);

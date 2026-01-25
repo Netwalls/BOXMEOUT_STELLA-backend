@@ -1,5 +1,4 @@
-// backend/src/index.ts - Main Backend Entry Point
-// BoxMeOut Stella - Prediction Market Backend API Server
+
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';

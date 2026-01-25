@@ -8,6 +8,8 @@ const ADMIN_PUBLIC_KEY = 'GADMINTEST12345678901234567890123456789012345678901234
 const USER_PUBLIC_KEY = 'GUSERTEST12345678901234567890123456789012345678901234567';
 
 process.env.ADMIN_WALLET_ADDRESSES = ADMIN_PUBLIC_KEY;
+process.env.JWT_ACCESS_SECRET = 'test-jwt-access-secret-min-32-chars-here-for-testing';
+process.env.JWT_REFRESH_SECRET = 'test-jwt-refresh-secret-min-32-chars-here-for-testing';
 
 const { treasuryService: blockchainTreasuryService } = await import('../../src/services/blockchain/treasury.js');
 const treasuryRoutesModule = await import('../../src/routes/treasury.routes.js');

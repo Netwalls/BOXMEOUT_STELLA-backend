@@ -13,6 +13,7 @@ config();
 import authRoutes from './routes/auth.routes.js';
 import marketRoutes from './routes/markets.routes.js';
 import predictionRoutes from './routes/predictions.js';
+import tradingRoutes from './routes/trading.js';
 
 // Import Redis initialization
 import { initializeRedis, closeRedisConnection, getRedisStatus } from './config/redis.js';
@@ -96,6 +97,9 @@ app.use('/api/markets', marketRoutes);
 
 // Prediction routes (commit-reveal flow)
 app.use('/api/markets', predictionRoutes);
+
+// Trading routes (buy/sell shares, odds)
+app.use('/api/markets', tradingRoutes);
 
 // TODO: Add other routes as they are implemented
 // app.use('/api/users', userRoutes);

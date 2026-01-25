@@ -13,6 +13,7 @@ config();
 import authRoutes from './routes/auth.routes.js';
 import marketRoutes from './routes/markets.routes.js';
 import oracleRoutes from './routes/oracle.js';
+import predictionRoutes from './routes/predictions.js';
 
 // Import Redis initialization
 import { initializeRedis, closeRedisConnection, getRedisStatus } from './config/redis.js';
@@ -95,9 +96,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/markets', marketRoutes);
 app.use('/api/markets', oracleRoutes);
 
+// Prediction routes (commit-reveal flow)
+app.use('/api/markets', predictionRoutes);
+
 // TODO: Add other routes as they are implemented
 // app.use('/api/users', userRoutes);
-// app.use('/api/predictions', predictionRoutes);
 // app.use('/api/leaderboard', leaderboardRoutes);
 
 // =============================================================================

@@ -1,3 +1,6 @@
+import { config } from 'dotenv';
+config(); // Load environment variables before anything else
+
 import { PrismaClient } from '@prisma/client';
 import { execSync } from 'child_process';
 import { beforeAll, afterAll } from 'vitest';

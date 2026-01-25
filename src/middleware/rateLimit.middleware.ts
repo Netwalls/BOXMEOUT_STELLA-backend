@@ -50,7 +50,7 @@ export const authRateLimiter: RateLimiterMiddleware = rateLimit({
   standardHeaders: true, // Return rate limit info in RateLimit-* headers
   legacyHeaders: false, // Disable X-RateLimit-* headers
   store: createRedisStore('auth'),
-  keyGenerator: (req: any) => req.ip || 'unknown',
+  keyGenerator: (req: any) => req.ip,
   message: rateLimitMessage('Too many authentication attempts. Please try again in 15 minutes.'),
   skip: () => process.env.NODE_ENV === 'test', // Skip in tests
 });
@@ -68,6 +68,7 @@ export const challengeRateLimiter: RateLimiterMiddleware = rateLimit({
   legacyHeaders: false,
   store: createRedisStore('challenge'),
   keyGenerator: (req: any) => req.body?.publicKey || req.ip || 'unknown',
+  validate: { ip: false },
   message: rateLimitMessage('Too many challenge requests. Please wait a moment.'),
   skip: () => process.env.NODE_ENV === 'test',
 });
@@ -88,6 +89,7 @@ export const apiRateLimiter: RateLimiterMiddleware = rateLimit({
     const authReq = req as AuthenticatedRequest;
     return authReq.user?.userId || req.ip || 'unknown';
   },
+  validate: { ip: false },
   message: rateLimitMessage('Too many requests. Please slow down.'),
   skip: () => process.env.NODE_ENV === 'test',
 });
@@ -104,7 +106,7 @@ export const refreshRateLimiter: RateLimiterMiddleware = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: createRedisStore('refresh'),
-  keyGenerator: (req: any) => req.ip || 'unknown',
+  keyGenerator: (req: any) => req.ip,
   message: rateLimitMessage('Too many refresh attempts.'),
   skip: () => process.env.NODE_ENV === 'test',
 });
@@ -125,6 +127,7 @@ export const sensitiveOperationRateLimiter: RateLimiterMiddleware = rateLimit({
     const authReq = req as AuthenticatedRequest;
     return authReq.user?.userId || req.ip || 'unknown';
   },
+  validate: { ip: false },
   message: rateLimitMessage('Too many sensitive operations. Please try again later.'),
   skip: () => process.env.NODE_ENV === 'test',
 });
@@ -149,6 +152,7 @@ export function createRateLimiter(options: {
       const authReq = req as AuthenticatedRequest;
       return authReq.user?.userId || req.ip || 'unknown';
     },
+    validate: { ip: false },
     message: rateLimitMessage(options.message || 'Rate limit exceeded.'),
     skip: () => process.env.NODE_ENV === 'test',
   });

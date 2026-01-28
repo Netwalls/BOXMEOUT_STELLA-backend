@@ -15,7 +15,11 @@ import marketRoutes from './routes/markets.routes.js';
 import predictionRoutes from './routes/predictions.js';
 
 // Import Redis initialization
-import { initializeRedis, closeRedisConnection, getRedisStatus } from './config/redis.js';
+import {
+  initializeRedis,
+  closeRedisConnection,
+  getRedisStatus,
+} from './config/redis.js';
 
 // Import middleware
 import { apiRateLimiter } from './middleware/rateLimit.middleware.js';
@@ -49,44 +53,25 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // Trust proxy (for rate limiting behind reverse proxy)
 app.set('trust proxy', 1);
 
-// =============================================================================
-// HEALTH CHECK ENDPOINTS
-// =============================================================================
+// Health Routes
+import healthRoutes from './routes/health.js';
+app.use('/api', healthRoutes);
 
-/**
- * Basic health check
- */
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    environment: NODE_ENV,
-  });
+// Metrics
+import client from 'prom-client';
+// Collect default metrics
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ register: client.register });
+
+app.get('/metrics', async (_req: Request, res: Response) => {
+  try {
+    res.set('Content-Type', client.register.contentType);
+    const metrics = await client.register.metrics();
+    res.end(metrics);
+  } catch (error) {
+    res.status(500).end(error);
+  }
 });
-
-/**
- * Detailed health check with service status
- */
-app.get('/health/detailed', async (_req: Request, res: Response) => {
-  const redisStatus = getRedisStatus();
-
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    environment: NODE_ENV,
-    services: {
-      redis: redisStatus,
-      // Add database status check here when prisma is connected
-    },
-  });
-});
-
-// =============================================================================
-// API ROUTES
-// =============================================================================
-
-// Apply general rate limiter to all API routes
-app.use('/api', apiRateLimiter);
 
 // Authentication routes
 app.use('/api/auth', authRoutes);
@@ -96,10 +81,6 @@ app.use('/api/markets', marketRoutes);
 
 // Prediction routes (commit-reveal flow)
 app.use('/api/markets', predictionRoutes);
-
-// TODO: Add other routes as they are implemented
-// app.use('/api/users', userRoutes);
-// app.use('/api/leaderboard', leaderboardRoutes);
 
 // =============================================================================
 // ERROR HANDLING
@@ -128,7 +109,10 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     success: false,
     error: {
       code: 'INTERNAL_ERROR',
-      message: NODE_ENV === 'production' ? 'An unexpected error occurred' : err.message,
+      message:
+        NODE_ENV === 'production'
+          ? 'An unexpected error occurred'
+          : err.message,
     },
   });
 });
@@ -212,4 +196,3 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export { startServer };
 export default app;
-

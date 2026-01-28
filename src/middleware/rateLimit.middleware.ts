@@ -22,7 +22,9 @@ function createRedisStore(prefix: string) {
       prefix: `rl:${prefix}:`,
     });
   } catch (error) {
-    console.warn(`Failed to create Redis store for rate limiter (${prefix}), using memory store`);
+    console.warn(
+      `Failed to create Redis store for rate limiter (${prefix}), using memory store`
+    );
     return undefined; // Falls back to memory store
   }
 }
@@ -51,7 +53,9 @@ export const authRateLimiter: RateLimiterMiddleware = rateLimit({
   legacyHeaders: false, // Disable X-RateLimit-* headers
   store: createRedisStore('auth'),
   keyGenerator: (req: any) => req.ip || 'unknown',
-  message: rateLimitMessage('Too many authentication attempts. Please try again in 15 minutes.'),
+  message: rateLimitMessage(
+    'Too many authentication attempts. Please try again in 15 minutes.'
+  ),
   skip: () => process.env.NODE_ENV === 'test', // Skip in tests
 });
 
@@ -68,7 +72,9 @@ export const challengeRateLimiter: RateLimiterMiddleware = rateLimit({
   legacyHeaders: false,
   store: createRedisStore('challenge'),
   keyGenerator: (req: any) => req.body?.publicKey || req.ip || 'unknown',
-  message: rateLimitMessage('Too many challenge requests. Please wait a moment.'),
+  message: rateLimitMessage(
+    'Too many challenge requests. Please wait a moment.'
+  ),
   skip: () => process.env.NODE_ENV === 'test',
 });
 
@@ -125,7 +131,9 @@ export const sensitiveOperationRateLimiter: RateLimiterMiddleware = rateLimit({
     const authReq = req as AuthenticatedRequest;
     return authReq.user?.userId || req.ip || 'unknown';
   },
-  message: rateLimitMessage('Too many sensitive operations. Please try again later.'),
+  message: rateLimitMessage(
+    'Too many sensitive operations. Please try again later.'
+  ),
   skip: () => process.env.NODE_ENV === 'test',
 });
 

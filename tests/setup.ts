@@ -1,6 +1,19 @@
 import { config } from 'dotenv';
 config(); // Load environment variables before anything else
 
+// Set default env vars for testing if not present
+process.env.NODE_ENV = 'test';
+process.env.JWT_ACCESS_SECRET =
+  process.env.JWT_ACCESS_SECRET ||
+  'test-secret-access-token-minimum-32-characters-required';
+process.env.JWT_REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET ||
+  'test-secret-refresh-token-minimum-32-characters-required';
+process.env.DATABASE_URL =
+  process.env.DATABASE_URL ||
+  'postgresql://postgres:password@localhost:5432/boxmeout_test';
+process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+
 import { PrismaClient } from '@prisma/client';
 import { execSync } from 'child_process';
 import { beforeAll, afterAll } from 'vitest';
@@ -8,7 +21,10 @@ import { beforeAll, afterAll } from 'vitest';
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/boxmeout_test',
+      url:
+        process.env.DATABASE_URL_TEST ||
+        process.env.DATABASE_URL ||
+        'postgresql://postgres:password@localhost:5432/boxmeout_test',
     },
   },
 });
@@ -25,7 +41,8 @@ beforeAll(async () => {
       execSync('npx prisma migrate deploy', {
         env: {
           ...process.env,
-          DATABASE_URL: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL,
+          DATABASE_URL:
+            process.env.DATABASE_URL_TEST || process.env.DATABASE_URL,
         },
         stdio: 'pipe',
       });

@@ -3,7 +3,7 @@
 
 import {
   Contract,
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   Networks,
   BASE_FEE,
@@ -29,21 +29,24 @@ interface CreateMarketResult {
 }
 
 export class FactoryService {
-  private rpcServer: SorobanRpc.Server;
+  private rpcServer: rpc.Server;
   private factoryContractId: string;
   private networkPassphrase: string;
   private adminKeypair: Keypair;
 
   constructor() {
-    const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const rpcUrl =
+      process.env.STELLAR_SOROBAN_RPC_URL ||
+      'https://soroban-testnet.stellar.org';
     const network = process.env.STELLAR_NETWORK || 'testnet';
-    
-    this.rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
+
+    this.rpcServer = new rpc.Server(rpcUrl, {
+      allowHttp: rpcUrl.includes('localhost'),
+    });
     this.factoryContractId = process.env.FACTORY_CONTRACT_ADDRESS || '';
-    this.networkPassphrase = network === 'mainnet' 
-      ? Networks.PUBLIC 
-      : Networks.TESTNET;
-    
+    this.networkPassphrase =
+      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+
     // Admin keypair for signing contract calls
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
     if (!adminSecret) {
@@ -65,13 +68,17 @@ export class FactoryService {
     try {
       // Convert timestamps to Unix time (seconds)
       const closingTimeUnix = Math.floor(params.closingTime.getTime() / 1000);
-      const resolutionTimeUnix = Math.floor(params.resolutionTime.getTime() / 1000);
+      const resolutionTimeUnix = Math.floor(
+        params.resolutionTime.getTime() / 1000
+      );
 
       // Build contract arguments
       const contract = new Contract(this.factoryContractId);
-      
+
       // Get source account
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       // Build the contract call operation
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -93,24 +100,26 @@ export class FactoryService {
         .build();
 
       // Prepare transaction for the network
-      const preparedTransaction = await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
 
       // Sign transaction
       preparedTransaction.sign(this.adminKeypair);
 
       // Submit transaction
-      const response = await this.rpcServer.sendTransaction(preparedTransaction);
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         // Wait for transaction confirmation
         const txHash = response.hash;
         const result = await this.waitForTransaction(txHash);
-        
+
         if (result.status === 'SUCCESS') {
           // Extract market_id from contract return value
           const returnValue = result.returnValue;
           const marketId = this.extractMarketId(returnValue);
-          
+
           return {
             marketId,
             txHash,
@@ -120,7 +129,9 @@ export class FactoryService {
           throw new Error(`Transaction failed: ${result.status}`);
         }
       } else if (response.status === 'ERROR') {
-        throw new Error(`Transaction submission error: ${response.errorResult}`);
+        throw new Error(
+          `Transaction submission error: ${response.errorResult}`
+        );
       } else {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
@@ -137,28 +148,31 @@ export class FactoryService {
    * @param txHash - Transaction hash
    * @returns Transaction result
    */
-  private async waitForTransaction(txHash: string, maxRetries: number = 10): Promise<any> {
+  private async waitForTransaction(
+    txHash: string,
+    maxRetries: number = 10
+  ): Promise<any> {
     let retries = 0;
-    
+
     while (retries < maxRetries) {
       try {
         const txResponse = await this.rpcServer.getTransaction(txHash);
-        
+
         if (txResponse.status === 'NOT_FOUND') {
           // Transaction not yet processed, wait and retry
           await this.sleep(2000);
           retries++;
           continue;
         }
-        
+
         if (txResponse.status === 'SUCCESS') {
           return txResponse;
         }
-        
+
         if (txResponse.status === 'FAILED') {
           throw new Error('Transaction failed on blockchain');
         }
-        
+
         // Other status, wait and retry
         await this.sleep(2000);
         retries++;
@@ -170,7 +184,7 @@ export class FactoryService {
         retries++;
       }
     }
-    
+
     throw new Error('Transaction confirmation timeout');
   }
 
@@ -183,11 +197,11 @@ export class FactoryService {
     if (!returnValue) {
       throw new Error('No return value from contract');
     }
-    
+
     try {
       // The contract returns BytesN<32>, convert to hex string
       const bytes = scValToNative(returnValue);
-      
+
       if (bytes instanceof Buffer) {
         return bytes.toString('hex');
       } else if (typeof bytes === 'string') {
@@ -206,7 +220,7 @@ export class FactoryService {
    * @param ms - Milliseconds to sleep
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -216,7 +230,9 @@ export class FactoryService {
   async getMarketCount(): Promise<number> {
     try {
       const contract = new Contract(this.factoryContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -226,13 +242,14 @@ export class FactoryService {
         .setTimeout(30)
         .build();
 
-      const simulationResponse = await this.rpcServer.simulateTransaction(builtTransaction);
-      
+      const simulationResponse =
+        await this.rpcServer.simulateTransaction(builtTransaction);
+
       if (SorobanRpc.Api.isSimulationSuccess(simulationResponse)) {
         const result = simulationResponse.result?.retval;
         return scValToNative(result) as number;
       }
-      
+
       throw new Error('Failed to get market count');
     } catch (error) {
       console.error('Error getting market count:', error);

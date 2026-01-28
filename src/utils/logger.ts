@@ -1,5 +1,5 @@
 import winston from 'winston';
-import 'winston-daily-rotate-file';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
 
 const { combine, timestamp, json, colorize, printf, errors } = winston.format;
@@ -34,7 +34,7 @@ const level = () => {
 };
 
 // Log rotation configuration
-const fileRotateTransport = new winston.transports.DailyRotateFile({
+const fileRotateTransport = new DailyRotateFile({
   filename: 'logs/app-%DATE%.log',
   datePattern: 'YYYY-MM-DD',
   zippedArchive: true,

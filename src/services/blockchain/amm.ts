@@ -3,7 +3,7 @@
 
 import {
   Contract,
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   Networks,
   BASE_FEE,
@@ -25,18 +25,23 @@ interface CreatePoolResult {
 }
 
 export class AmmService {
-  private rpcServer: SorobanRpc.Server;
+  private rpcServer: rpc.Server;
   private ammContractId: string;
   private networkPassphrase: string;
   private adminKeypair: Keypair;
 
   constructor() {
-    const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const rpcUrl =
+      process.env.STELLAR_SOROBAN_RPC_URL ||
+      'https://soroban-testnet.stellar.org';
     const network = process.env.STELLAR_NETWORK || 'testnet';
 
-    this.rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
+    this.rpcServer = new rpc.Server(rpcUrl, {
+      allowHttp: rpcUrl.includes('localhost'),
+    });
     this.ammContractId = process.env.AMM_CONTRACT_ADDRESS || '';
-    this.networkPassphrase = network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+    this.networkPassphrase =
+      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
     if (!adminSecret) {
@@ -55,7 +60,9 @@ export class AmmService {
 
     // Build contract call
     const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
 
     const builtTx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -96,9 +103,16 @@ export class AmmService {
     throw new Error(`Unexpected response status: ${response.status}`);
   }
 
-  async getPoolState(marketId: string): Promise<{ reserves: { yes: bigint; no: bigint }; odds: { yes: number; no: number } }> {
+  async getPoolState(
+    marketId: string
+  ): Promise<{
+    reserves: { yes: bigint; no: bigint };
+    odds: { yes: number; no: number };
+  }> {
     const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
 
     const builtTx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -114,7 +128,7 @@ export class AmmService {
       .build();
 
     const sim = await this.rpcServer.simulateTransaction(builtTx);
-    if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
+    if (!rpc.Api.isSimulationSuccess(sim)) {
       throw new Error('Failed to fetch pool state');
     }
     const retval = sim.result?.retval as xdr.ScVal | undefined;
@@ -136,12 +150,16 @@ export class AmmService {
     return { reserves, odds };
   }
 
-  private async waitForTransaction(txHash: string, maxRetries: number = 10): Promise<any> {
+  private async waitForTransaction(
+    txHash: string,
+    maxRetries: number = 10
+  ): Promise<any> {
     let retries = 0;
     while (retries < maxRetries) {
       const tx = await this.rpcServer.getTransaction(txHash);
       if (tx.status === 'SUCCESS') return tx;
-      if (tx.status === 'FAILED') throw new Error('Transaction failed on blockchain');
+      if (tx.status === 'FAILED')
+        throw new Error('Transaction failed on blockchain');
       await this.sleep(2000);
       retries++;
     }

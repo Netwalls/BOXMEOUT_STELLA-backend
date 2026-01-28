@@ -128,7 +128,7 @@ export class MarketsController {
           closingAt: market.closingAt,
           createdAt: market.createdAt,
           txHash: market.txHash,
-          creator: market.creator,
+          creatorId: market.creatorId,
         },
       });
     } catch (error) {
@@ -218,7 +218,7 @@ export class MarketsController {
     res: Response
   ): Promise<void> {
     try {
-      const marketId = req.params.id;
+      const marketId = req.params.id as string;
 
       const market = await this.marketService.getMarketDetails(marketId);
 
@@ -244,6 +244,47 @@ export class MarketsController {
         error: {
           code: 'INTERNAL_ERROR',
           message: 'Failed to fetch market details',
+        },
+      });
+    }
+  }
+
+  /**
+   * POST /api/markets/:id/pool - Create AMM pool
+   */
+  async createPool(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const marketId = req.params.id as string;
+      const { initialLiquidity } = req.body;
+
+      if (!initialLiquidity || BigInt(initialLiquidity) <= 0n) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_LIQUIDITY',
+            message: 'Initial liquidity must be greater than 0',
+          },
+        });
+        return;
+      }
+
+      const result = await this.marketService.createPool(
+        marketId,
+        BigInt(initialLiquidity)
+      );
+
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error('Create pool error:', error);
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'POOL_CREATION_FAILED',
+          message:
+            error instanceof Error ? error.message : 'Failed to create pool',
         },
       });
     }

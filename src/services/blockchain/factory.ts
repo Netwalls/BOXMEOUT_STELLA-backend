@@ -4,7 +4,6 @@
 import {
   Contract,
   rpc,
-  rpc,
   TransactionBuilder,
   Networks,
   BASE_FEE,
@@ -246,10 +245,11 @@ export class FactoryService {
       const simulationResponse =
         await this.rpcServer.simulateTransaction(builtTransaction);
 
-      if (SorobanRpc.Api.isSimulationSuccess(simulationResponse)) {
-        const result = simulationResponse.result?.retval;
-        if (!result) throw new Error('Failed to get market count: no return value');
-        return scValToNative(result) as number;
+      if (
+        rpc.Api.isSimulationSuccess(simulationResponse) &&
+        simulationResponse.result?.retval
+      ) {
+        return scValToNative(simulationResponse.result.retval) as number;
       }
 
       throw new Error('Failed to get market count');

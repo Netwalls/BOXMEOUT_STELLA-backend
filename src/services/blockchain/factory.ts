@@ -3,7 +3,7 @@
 
 import {
   Contract,
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   Networks,
   BASE_FEE,
@@ -29,7 +29,7 @@ interface CreateMarketResult {
 }
 
 export class FactoryService {
-  private rpcServer: SorobanRpc.Server;
+  private rpcServer: rpc.Server;
   private factoryContractId: string;
   private networkPassphrase: string;
   private adminKeypair: Keypair;
@@ -37,13 +37,13 @@ export class FactoryService {
   constructor() {
     const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
     const network = process.env.STELLAR_NETWORK || 'testnet';
-    
-    this.rpcServer = new SorobanRpc.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
+
+    this.rpcServer = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
     this.factoryContractId = process.env.FACTORY_CONTRACT_ADDRESS || '';
-    this.networkPassphrase = network === 'mainnet' 
-      ? Networks.PUBLIC 
+    this.networkPassphrase = network === 'mainnet'
+      ? Networks.PUBLIC
       : Networks.TESTNET;
-    
+
     // Admin keypair for signing contract calls
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
     if (!adminSecret) {
@@ -69,7 +69,7 @@ export class FactoryService {
 
       // Build contract arguments
       const contract = new Contract(this.factoryContractId);
-      
+
       // Get source account
       const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
 
@@ -105,12 +105,12 @@ export class FactoryService {
         // Wait for transaction confirmation
         const txHash = response.hash;
         const result = await this.waitForTransaction(txHash);
-        
+
         if (result.status === 'SUCCESS') {
           // Extract market_id from contract return value
           const returnValue = result.returnValue;
           const marketId = this.extractMarketId(returnValue);
-          
+
           return {
             marketId,
             txHash,
@@ -139,26 +139,26 @@ export class FactoryService {
    */
   private async waitForTransaction(txHash: string, maxRetries: number = 10): Promise<any> {
     let retries = 0;
-    
+
     while (retries < maxRetries) {
       try {
         const txResponse = await this.rpcServer.getTransaction(txHash);
-        
+
         if (txResponse.status === 'NOT_FOUND') {
           // Transaction not yet processed, wait and retry
           await this.sleep(2000);
           retries++;
           continue;
         }
-        
+
         if (txResponse.status === 'SUCCESS') {
           return txResponse;
         }
-        
+
         if (txResponse.status === 'FAILED') {
           throw new Error('Transaction failed on blockchain');
         }
-        
+
         // Other status, wait and retry
         await this.sleep(2000);
         retries++;
@@ -170,7 +170,7 @@ export class FactoryService {
         retries++;
       }
     }
-    
+
     throw new Error('Transaction confirmation timeout');
   }
 
@@ -183,11 +183,11 @@ export class FactoryService {
     if (!returnValue) {
       throw new Error('No return value from contract');
     }
-    
+
     try {
       // The contract returns BytesN<32>, convert to hex string
       const bytes = scValToNative(returnValue);
-      
+
       if (bytes instanceof Buffer) {
         return bytes.toString('hex');
       } else if (typeof bytes === 'string') {
@@ -227,12 +227,13 @@ export class FactoryService {
         .build();
 
       const simulationResponse = await this.rpcServer.simulateTransaction(builtTransaction);
-      
-      if (SorobanRpc.Api.isSimulationSuccess(simulationResponse)) {
+
+      if (rpc.Api.isSimulationSuccess(simulationResponse)) {
         const result = simulationResponse.result?.retval;
+        if (!result) throw new Error('Failed to get market count: no return value');
         return scValToNative(result) as number;
       }
-      
+
       throw new Error('Failed to get market count');
     } catch (error) {
       console.error('Error getting market count:', error);

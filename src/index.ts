@@ -1,5 +1,4 @@
-// backend/src/index.ts - Main Backend Entry Point
-// BoxMeOut Stella - Prediction Market Backend API Server
+
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -12,6 +11,7 @@ config();
 // Import routes
 import authRoutes from './routes/auth.routes.js';
 import marketRoutes from './routes/markets.routes.js';
+import oracleRoutes from './routes/oracle.js';
 import predictionRoutes from './routes/predictions.js';
 
 // Import Redis initialization
@@ -78,6 +78,7 @@ app.use('/api/auth', authRoutes);
 
 // Market routes
 app.use('/api/markets', marketRoutes);
+app.use('/api/markets', oracleRoutes);
 
 // Prediction routes (commit-reveal flow)
 app.use('/api/markets', predictionRoutes);

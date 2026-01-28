@@ -4,7 +4,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../types/auth.types.js';
 import { MarketService } from '../services/market.service.js';
-import { MarketCategory } from '@prisma/client';
+import { MarketCategory, MarketStatus } from '@prisma/client';
 import { z } from 'zod';
 
 // Validation schema for market creation

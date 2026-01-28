@@ -60,7 +60,7 @@ export function getRedisClient(): Redis {
  */
 export async function initializeRedis(): Promise<void> {
   const client = getRedisClient();
-  
+
   try {
     await client.connect();
     // Test the connection

@@ -22,7 +22,9 @@ function createRedisStore(prefix: string) {
       prefix: `rl:${prefix}:`,
     });
   } catch (error) {
-    console.warn(`Failed to create Redis store for rate limiter (${prefix}), using memory store`);
+    console.warn(
+      `Failed to create Redis store for rate limiter (${prefix}), using memory store`
+    );
     return undefined; // Falls back to memory store
   }
 }
@@ -50,8 +52,10 @@ export const authRateLimiter: RateLimiterMiddleware = rateLimit({
   standardHeaders: true, // Return rate limit info in RateLimit-* headers
   legacyHeaders: false, // Disable X-RateLimit-* headers
   store: createRedisStore('auth'),
-  keyGenerator: (req: any) => req.ip,
-  message: rateLimitMessage('Too many authentication attempts. Please try again in 15 minutes.'),
+  keyGenerator: (req: any) => req.ip || 'unknown',
+  message: rateLimitMessage(
+    'Too many authentication attempts. Please try again in 15 minutes.'
+  ),
   skip: () => process.env.NODE_ENV === 'test', // Skip in tests
 });
 

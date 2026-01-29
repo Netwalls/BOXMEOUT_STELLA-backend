@@ -48,6 +48,23 @@ export class AmmService {
       network === 'mainnet'
         ? Networks.PUBLIC
         : Networks.TESTNET;
+  private rpcServer: rpc.Server;
+  private ammContractId: string;
+  private networkPassphrase: string;
+  private adminKeypair: Keypair;
+
+  constructor() {
+    const rpcUrl =
+      process.env.STELLAR_SOROBAN_RPC_URL ||
+      'https://soroban-testnet.stellar.org';
+    const network = process.env.STELLAR_NETWORK || 'testnet';
+
+    this.rpcServer = new rpc.Server(rpcUrl, {
+      allowHttp: rpcUrl.includes('localhost'),
+    });
+    this.ammContractId = process.env.AMM_CONTRACT_ADDRESS || '';
+    this.networkPassphrase =
+      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
     if (!adminSecret) {
@@ -70,6 +87,7 @@ export class AmmService {
     const contract = new Contract(this.ammContractId);
     const sourceAccount = await this.rpcServer.getAccount(
       this.adminKeypair.publicKey(),
+      this.adminKeypair.publicKey()
     );
 
     const tx = new TransactionBuilder(sourceAccount, {
@@ -130,6 +148,8 @@ export class AmmService {
    */
   async getPoolState(
     marketId: string,
+  async getPoolState(
+    marketId: string
   ): Promise<{
     reserves: { yes: bigint; no: bigint };
     odds: { yes: number; no: number };
@@ -137,6 +157,7 @@ export class AmmService {
     const contract = new Contract(this.ammContractId);
     const sourceAccount = await this.rpcServer.getAccount(
       this.adminKeypair.publicKey(),
+      this.adminKeypair.publicKey()
     );
 
     const tx = new TransactionBuilder(sourceAccount, {
@@ -161,6 +182,8 @@ export class AmmService {
       await this.rpcServer.simulateTransaction(tx);
 
     if (!this.isSimulationSuccess(simulation)) {
+    const sim = await this.rpcServer.simulateTransaction(builtTx);
+    if (!rpc.Api.isSimulationSuccess(sim)) {
       throw new Error('Failed to fetch pool state');
     }
 
@@ -213,6 +236,16 @@ export class AmmService {
         throw new Error('Transaction failed on-chain');
       }
 
+  private async waitForTransaction(
+    txHash: string,
+    maxRetries: number = 10
+  ): Promise<any> {
+    let retries = 0;
+    while (retries < maxRetries) {
+      const tx = await this.rpcServer.getTransaction(txHash);
+      if (tx.status === 'SUCCESS') return tx;
+      if (tx.status === 'FAILED')
+        throw new Error('Transaction failed on blockchain');
       await this.sleep(2000);
     }
 

@@ -1,5 +1,4 @@
-// backend/src/index.ts - Main Backend Entry Point
-// BoxMeOut Stella - Prediction Market Backend API Server
+
 
 import express from 'express';
 import { config } from 'dotenv';
@@ -10,10 +9,15 @@ config();
 // Import routes
 import authRoutes from './routes/auth.routes.js';
 import marketRoutes from './routes/markets.routes.js';
+import oracleRoutes from './routes/oracle.js';
 import predictionRoutes from './routes/predictions.js';
 
 // Import Redis initialization
-import { initializeRedis, closeRedisConnection, getRedisStatus } from './config/redis.js';
+import {
+  initializeRedis,
+  closeRedisConnection,
+  getRedisStatus,
+} from './config/redis.js';
 
 // Import ALL middleware
 import {
@@ -67,9 +71,9 @@ app.use(requestLogger);
 // Trust proxy (for rate limiting behind reverse proxy)
 app.set('trust proxy', 1);
 
-// =============================================================================
-// HEALTH CHECK ENDPOINTS
-// =============================================================================
+// Health Routes
+import healthRoutes from './routes/health.js';
+app.use('/api', healthRoutes);
 
 /**
  * @swagger
@@ -172,16 +176,31 @@ app.use('/api', apiRateLimiter);
 
 // Authentication routes with specific rate limiting
 app.use('/api/auth', authRateLimiter, authRoutes);
+// Metrics
+import client from 'prom-client';
+// Collect default metrics
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ register: client.register });
+
+app.get('/metrics', async (_req: Request, res: Response) => {
+  try {
+    res.set('Content-Type', client.register.contentType);
+    const metrics = await client.register.metrics();
+    res.end(metrics);
+  } catch (error) {
+    res.status(500).end(error);
+  }
+});
+
+// Authentication routes
+app.use('/api/auth', authRoutes);
 
 // Market routes
 app.use('/api/markets', marketRoutes);
+app.use('/api/markets', oracleRoutes);
 
 // Prediction routes (commit-reveal flow)
 app.use('/api/markets', predictionRoutes);
-
-// TODO: Add other routes as they are implemented
-// app.use('/api/users', userRoutes);
-// app.use('/api/leaderboard', leaderboardRoutes);
 
 // =============================================================================
 // ERROR HANDLING - UPDATED WITH NEW ERROR HANDLER
@@ -192,6 +211,23 @@ app.use(notFoundHandler);
 
 // Use the new global error handler
 app.use(errorHandler);
+/**
+ * Global error handler
+ */
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('Unhandled error:', err);
+
+  res.status(500).json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message:
+        NODE_ENV === 'production'
+          ? 'An unexpected error occurred'
+          : err.message,
+    },
+  });
+});
 
 // =============================================================================
 // SERVER STARTUP
@@ -273,4 +309,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 
 export { startServer };
+export default app;
 export default app;

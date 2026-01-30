@@ -89,6 +89,7 @@ model Market {
   feesCollected     Decimal       @default(0) @map("fees_collected") @db.Decimal(18, 6)
   disputeReason     String?       @map("dispute_reason") @db.Text
   resolutionSource  String?       @map("resolution_source")
+  poolTxHash        String?       @map("pool_tx_hash")
   updatedAt         DateTime      @updatedAt @map("updated_at")
 
   // Relations

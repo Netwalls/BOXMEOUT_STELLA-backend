@@ -2,6 +2,7 @@ import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import { getRedisClient } from '../config/redis.js';
 import { AuthenticatedRequest } from '../types/auth.types.js';
+import { ipKeyGenerator } from 'express-rate-limit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RateLimiterMiddleware = any;
@@ -41,6 +42,19 @@ const rateLimitMessage = (message: string) => ({
 });
 
 /**
+ * Helper function to safely get IP address with IPv6 support
+ */
+function getIpKey(req: any): string {
+  try {
+    // Use the ipKeyGenerator helper function for proper IPv6 support
+    return ipKeyGenerator(req, req.ip);
+  } catch (error) {
+    // Fallback if ipKeyGenerator fails
+    return req.ip || 'unknown';
+  }
+}
+
+/**
  * Rate limiter for authentication endpoints (strict)
  * Prevents brute force attacks on login
  *
@@ -52,6 +66,8 @@ export const authRateLimiter: RateLimiterMiddleware = rateLimit({
   standardHeaders: true, // Return rate limit info in RateLimit-* headers
   legacyHeaders: false, // Disable X-RateLimit-* headers
   store: createRedisStore('auth'),
+  keyGenerator: (req: any) => getIpKey(req),
+  message: rateLimitMessage('Too many authentication attempts. Please try again in 15 minutes.'),
   keyGenerator: (req: any) => req.ip || 'unknown',
   message: rateLimitMessage(
     'Too many authentication attempts. Please try again in 15 minutes.'
@@ -71,6 +87,11 @@ export const challengeRateLimiter: RateLimiterMiddleware = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: createRedisStore('challenge'),
+  keyGenerator: (req: any) => {
+    // For challenge endpoint, use publicKey if available, otherwise IP
+    return req.body?.publicKey || getIpKey(req);
+  },
+  message: rateLimitMessage('Too many challenge requests. Please wait a moment.'),
   keyGenerator: (req: any) => req.body?.publicKey || req.ip || 'unknown',
   validate: { ip: false },
   message: rateLimitMessage('Too many challenge requests. Please wait a moment.'),
@@ -91,7 +112,7 @@ export const apiRateLimiter: RateLimiterMiddleware = rateLimit({
   store: createRedisStore('api'),
   keyGenerator: (req: any) => {
     const authReq = req as AuthenticatedRequest;
-    return authReq.user?.userId || req.ip || 'unknown';
+    return authReq.user?.userId || getIpKey(req);
   },
   validate: { ip: false },
   message: rateLimitMessage('Too many requests. Please slow down.'),
@@ -129,7 +150,7 @@ export const sensitiveOperationRateLimiter: RateLimiterMiddleware = rateLimit({
   store: createRedisStore('sensitive'),
   keyGenerator: (req: any) => {
     const authReq = req as AuthenticatedRequest;
-    return authReq.user?.userId || req.ip || 'unknown';
+    return authReq.user?.userId || getIpKey(req);
   },
   validate: { ip: false },
   message: rateLimitMessage('Too many sensitive operations. Please try again later.'),
@@ -154,7 +175,7 @@ export function createRateLimiter(options: {
     store: createRedisStore(options.prefix),
     keyGenerator: (req: any) => {
       const authReq = req as AuthenticatedRequest;
-      return authReq.user?.userId || req.ip || 'unknown';
+      return authReq.user?.userId || getIpKey(req);
     },
     validate: { ip: false },
     message: rateLimitMessage(options.message || 'Rate limit exceeded.'),

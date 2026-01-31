@@ -11,7 +11,6 @@ import {
   nativeToScVal,
   scValToNative,
   xdr,
-  SorobanRpc,
 } from '@stellar/stellar-sdk';
 
 interface BuySharesParams {
@@ -295,7 +294,7 @@ export class AmmService {
       // Simulate transaction to get result without submitting
       const simulationResponse = await this.rpcServer.simulateTransaction(builtTransaction);
 
-      if (SorobanRpc.Api.isSimulationSuccess(simulationResponse)) {
+      if (rpc.Api.isSimulationSuccess(simulationResponse)) {
         const result = simulationResponse.result?.retval;
         if (!result) {
           throw new Error('No return value from simulation');

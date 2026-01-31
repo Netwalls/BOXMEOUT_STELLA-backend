@@ -1,6 +1,5 @@
 
-
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { config } from 'dotenv';
 
 // Load environment variables
@@ -219,23 +218,6 @@ app.use(notFoundHandler);
 
 // Use the new global error handler
 app.use(errorHandler);
-/**
- * Global error handler
- */
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Unhandled error:', err);
-
-  res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message:
-        NODE_ENV === 'production'
-          ? 'An unexpected error occurred'
-          : err.message,
-    },
-  });
-});
 
 // =============================================================================
 // SERVER STARTUP
@@ -317,5 +299,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 
 export { startServer };
-export default app;
 export default app;

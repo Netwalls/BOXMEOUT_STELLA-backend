@@ -68,10 +68,6 @@ export const authRateLimiter: RateLimiterMiddleware = rateLimit({
   store: createRedisStore('auth'),
   keyGenerator: (req: any) => getIpKey(req),
   message: rateLimitMessage('Too many authentication attempts. Please try again in 15 minutes.'),
-  keyGenerator: (req: any) => req.ip || 'unknown',
-  message: rateLimitMessage(
-    'Too many authentication attempts. Please try again in 15 minutes.'
-  ),
   skip: () => process.env.NODE_ENV === 'test', // Skip in tests
 });
 
@@ -92,10 +88,6 @@ export const challengeRateLimiter: RateLimiterMiddleware = rateLimit({
     return req.body?.publicKey || getIpKey(req);
   },
   message: rateLimitMessage('Too many challenge requests. Please wait a moment.'),
-  keyGenerator: (req: any) => req.body?.publicKey || req.ip || 'unknown',
-  message: rateLimitMessage(
-    'Too many challenge requests. Please wait a moment.'
-  ),
   skip: () => process.env.NODE_ENV === 'test',
 });
 

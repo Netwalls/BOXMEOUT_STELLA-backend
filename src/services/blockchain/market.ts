@@ -17,7 +17,7 @@ export interface MarketActionResult {
 export class MarketBlockchainService {
     private rpcServer: rpc.Server;
     private networkPassphrase: string;
-    private adminKeypair: Keypair;
+    private adminKeypair?: Keypair;
 
     constructor() {
         const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -29,10 +29,13 @@ export class MarketBlockchainService {
             : Networks.TESTNET;
 
         const adminSecret = process.env.ADMIN_WALLET_SECRET;
-        if (!adminSecret) {
-            throw new Error('ADMIN_WALLET_SECRET not configured');
+        if (adminSecret) {
+            try {
+                this.adminKeypair = Keypair.fromSecret(adminSecret);
+            } catch (error) {
+                console.warn('Invalid ADMIN_WALLET_SECRET for Market service');
+            }
         }
-        this.adminKeypair = Keypair.fromSecret(adminSecret);
     }
 
     /**
@@ -41,6 +44,9 @@ export class MarketBlockchainService {
      * @returns Transaction hash
      */
     async resolveMarket(marketContractAddress: string): Promise<MarketActionResult> {
+        if (!this.adminKeypair) {
+            throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+        }
         try {
             const contract = new Contract(marketContractAddress);
             const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
@@ -79,6 +85,9 @@ export class MarketBlockchainService {
      * Usually this is signed by the user, but if the backend is an intermediary/custodial:
      */
     async claimWinnings(marketContractAddress: string, userPublicKey: string): Promise<MarketActionResult> {
+        if (!this.adminKeypair) {
+            throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+        }
         try {
             const contract = new Contract(marketContractAddress);
             const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());

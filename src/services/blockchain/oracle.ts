@@ -20,7 +20,7 @@ export class OracleService {
     private rpcServer: rpc.Server;
     private oracleContractId: string;
     private networkPassphrase: string;
-    private adminKeypair: Keypair;
+    private adminKeypair?: Keypair;
 
     constructor() {
         const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -33,10 +33,13 @@ export class OracleService {
             : Networks.TESTNET;
 
         const adminSecret = process.env.ADMIN_WALLET_SECRET;
-        if (!adminSecret) {
-            throw new Error('ADMIN_WALLET_SECRET not configured');
+        if (adminSecret) {
+            try {
+                this.adminKeypair = Keypair.fromSecret(adminSecret);
+            } catch (error) {
+                console.warn('Invalid ADMIN_WALLET_SECRET for Oracle service');
+            }
         }
-        this.adminKeypair = Keypair.fromSecret(adminSecret);
     }
 
     /**
@@ -48,6 +51,9 @@ export class OracleService {
     async submitAttestation(marketId: string, outcome: number): Promise<AttestationResult> {
         if (!this.oracleContractId) {
             throw new Error('Oracle contract address not configured');
+        }
+        if (!this.adminKeypair) {
+            throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
         }
 
         try {
@@ -104,7 +110,8 @@ export class OracleService {
         try {
             const contract = new Contract(this.oracleContractId);
             const marketIdBuffer = Buffer.from(marketId, 'hex');
-            const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+            const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+            const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
             const builtTransaction = new TransactionBuilder(sourceAccount, {
                 fee: BASE_FEE,

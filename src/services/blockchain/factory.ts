@@ -33,18 +33,7 @@ export class FactoryService {
   private readonly rpcServer: rpc.Server;
   private readonly factoryContractId: string;
   private readonly networkPassphrase: string;
-  private readonly adminKeypair: Keypair;
-
-  constructor() {
-    const rpcUrl =
-      process.env.STELLAR_SOROBAN_RPC_URL ??
-      'https://soroban-testnet.stellar.org';
-
-    const network = process.env.STELLAR_NETWORK ?? 'testnet';
-  private rpcServer: rpc.Server;
-  private factoryContractId: string;
-  private networkPassphrase: string;
-  private adminKeypair: Keypair;
+  private readonly adminKeypair?: Keypair; // Optional - only needed for write operations
 
   constructor() {
     const rpcUrl =
@@ -56,25 +45,19 @@ export class FactoryService {
       allowHttp: rpcUrl.includes('localhost'),
     });
 
-    this.factoryContractId =
-      process.env.FACTORY_CONTRACT_ADDRESS ?? '';
-
-    this.networkPassphrase =
-      network === 'mainnet'
-        ? Networks.PUBLIC
-        : Networks.TESTNET;
-
     this.factoryContractId = process.env.FACTORY_CONTRACT_ADDRESS || '';
     this.networkPassphrase =
       network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 
-    // Admin keypair for signing contract calls
+    // Admin keypair is optional - only needed for contract write operations
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (!adminSecret) {
-      throw new Error('ADMIN_WALLET_SECRET not configured');
+    if (adminSecret) {
+      try {
+        this.adminKeypair = Keypair.fromSecret(adminSecret);
+      } catch (error) {
+        console.warn('Invalid ADMIN_WALLET_SECRET provided, contract writes will fail');
+      }
     }
-
-    this.adminKeypair = Keypair.fromSecret(adminSecret);
   }
 
   /**
@@ -87,13 +70,11 @@ export class FactoryService {
       throw new Error('Factory contract address not configured');
     }
 
-    try {
-      const closingTimeUnix = Math.floor(
-        params.closingTime.getTime() / 1000,
-      );
+    if (!this.adminKeypair) {
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+    }
 
-      const resolutionTimeUnix = Math.floor(
-        params.resolutionTime.getTime() / 1000,
+    try {
       // Convert timestamps to Unix time (seconds)
       const closingTimeUnix = Math.floor(params.closingTime.getTime() / 1000);
       const resolutionTimeUnix = Math.floor(
@@ -101,15 +82,13 @@ export class FactoryService {
       );
 
       const contract = new Contract(this.factoryContractId);
-      const sourceAccount = await this.rpcServer.getAccount(
-        this.adminKeypair.publicKey(),
 
       // Get source account
       const sourceAccount = await this.rpcServer.getAccount(
         this.adminKeypair.publicKey()
       );
 
-      const tx = new TransactionBuilder(sourceAccount, {
+      const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       })
@@ -127,26 +106,6 @@ export class FactoryService {
         .setTimeout(30)
         .build();
 
-      const preparedTx =
-        await this.rpcServer.prepareTransaction(tx);
-
-      preparedTx.sign(this.adminKeypair);
-
-      const sendResponse =
-        await this.rpcServer.sendTransaction(preparedTx);
-
-      if (sendResponse.status !== 'PENDING') {
-        throw new Error(
-          `Transaction submission failed: ${sendResponse.status}`,
-        );
-      }
-
-      const txResult = await this.waitForTransaction(
-        sendResponse.hash,
-      );
-
-      if (txResult.status !== 'SUCCESS') {
-        throw new Error('Transaction execution failed');
       // Prepare transaction for the network
       const preparedTransaction =
         await this.rpcServer.prepareTransaction(builtTransaction);
@@ -183,26 +142,10 @@ export class FactoryService {
       } else {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
-
-      const marketId = this.extractMarketId(
-        txResult.returnValue,
-      );
-
-      return {
-        marketId,
-        txHash: sendResponse.hash,
-        contractAddress: this.factoryContractId,
-      };
     } catch (error) {
-      console.error(
-        'Factory.create_market() error:',
-        error,
-      );
+      console.error('Factory.create_market() error:', error);
       throw new Error(
-        `Failed to create market: ${
-          error instanceof Error
-            ? error.message
-            : 'Unknown error'
+        `Failed to create market: ${error instanceof Error ? error.message : 'Unknown error'
         }`,
       );
     }
@@ -213,13 +156,6 @@ export class FactoryService {
    */
   private async waitForTransaction(
     txHash: string,
-    maxRetries = 10,
-  ) {
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const tx = await this.rpcServer.getTransaction(txHash);
-
-      if (tx.status === 'SUCCESS') {
-        return tx;
     maxRetries: number = 10
   ): Promise<any> {
     let retries = 0;
@@ -253,12 +189,6 @@ export class FactoryService {
         await this.sleep(2000);
         retries++;
       }
-
-      if (tx.status === 'FAILED') {
-        throw new Error('Transaction failed on-chain');
-      }
-
-      await this.sleep(2000);
     }
 
     throw new Error('Transaction confirmation timeout');
@@ -267,18 +197,12 @@ export class FactoryService {
   /**
    * Extract BytesN<32> market_id from return value
    */
-  private extractMarketId(
-    returnValue: xdr.ScVal | undefined,
-  ): string {
-    if (!returnValue) {
-      throw new Error('No return value from contract');
-    }
-
-    const native = scValToNative(returnValue);
-
-    if (native instanceof Buffer) {
-      return native.toString('hex');
+  private extractMarketId(returnValue: xdr.ScVal | undefined): string {
     try {
+      if (!returnValue) {
+        throw new Error('No return value from contract');
+      }
+
       // The contract returns BytesN<32>, convert to hex string
       const bytes = scValToNative(returnValue);
 
@@ -293,12 +217,8 @@ export class FactoryService {
       console.error('Error extracting market_id:', error);
       throw new Error('Failed to extract market ID from contract response');
     }
+  }
 
-    if (typeof native === 'string') {
-      return native;
-    }
-
-    throw new Error('Unexpected return value type');
   /**
    * Sleep utility
    * @param ms - Milliseconds to sleep
@@ -312,13 +232,18 @@ export class FactoryService {
    */
   async getMarketCount(): Promise<number> {
     try {
-      const contract = new Contract(this.factoryContractId);
-      const sourceAccount = await this.rpcServer.getAccount(
-        this.adminKeypair.publicKey(),
-        this.adminKeypair.publicKey()
-      );
+      if (!this.factoryContractId) {
+        return 0;
+      }
 
-      const tx = new TransactionBuilder(sourceAccount, {
+      const contract = new Contract(this.factoryContractId);
+
+      // For read-only calls, we can use any source account
+      // Use admin if available, otherwise use a dummy keypair
+      const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+      const sourceAccount = await this.rpcServer.getAccount(accountKey);
+
+      const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       })
@@ -326,16 +251,6 @@ export class FactoryService {
         .setTimeout(30)
         .build();
 
-      const simulation =
-        await this.rpcServer.simulateTransaction(tx);
-
-      if (this.isSimulationSuccess(simulation)) {
-        return scValToNative(
-          simulation.result.retval,
-        ) as number;
-      }
-
-      throw new Error('Simulation failed');
       const simulationResponse =
         await this.rpcServer.simulateTransaction(builtTransaction);
 
@@ -351,19 +266,6 @@ export class FactoryService {
       console.error('getMarketCount error:', error);
       return 0;
     }
-  }
-
-  /**
-   * Type guard for successful simulation
-   */
-  private isSimulationSuccess(
-    response: any,
-  ): response is { result: any } {
-    return 'result' in response;
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 

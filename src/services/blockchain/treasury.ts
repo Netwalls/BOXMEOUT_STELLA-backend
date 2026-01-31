@@ -1,12 +1,13 @@
 import {
   Contract,
-  Soroban,
+  rpc,
   TransactionBuilder,
   Networks,
   BASE_FEE,
   Keypair,
   nativeToScVal,
-  Address, BytesN, Env, Symbol,
+  scValToNative,
+  Address,
 } from '@stellar/stellar-sdk';
 
 export interface TreasuryBalances {
@@ -23,26 +24,29 @@ interface DistributeResult {
 }
 
 export class TreasuryService {
-  private rpcServer: Soroban.Server;
+  private rpcServer: rpc.Server;
   private treasuryContractId: string;
   private networkPassphrase: string;
-  private adminKeypair: Keypair;
+  private adminKeypair?: Keypair; // Optional - only needed for write operations
 
   constructor() {
     const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
     const network = process.env.STELLAR_NETWORK || 'testnet';
-    
-    this.rpcServer = new Soroban.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
+
+    this.rpcServer = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
     this.treasuryContractId = process.env.TREASURY_CONTRACT_ADDRESS || '';
-    this.networkPassphrase = network === 'mainnet' 
-      ? Networks.PUBLIC 
+    this.networkPassphrase = network === 'mainnet'
+      ? Networks.PUBLIC
       : Networks.TESTNET;
-    
+
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (!adminSecret) {
-      throw new Error('ADMIN_WALLET_SECRET not configured');
+    if (adminSecret) {
+      try {
+        this.adminKeypair = Keypair.fromSecret(adminSecret);
+      } catch (error) {
+        console.warn('Invalid ADMIN_WALLET_SECRET for Treasury service');
+      }
     }
-    this.adminKeypair = Keypair.fromSecret(adminSecret);
   }
 
   async getBalances(): Promise<TreasuryBalances> {
@@ -52,7 +56,9 @@ export class TreasuryService {
 
     try {
       const contract = new Contract(this.treasuryContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      // Read-only call - use admin if available, otherwise dummy keypair
+      const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+      const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -62,22 +68,19 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(builtTransaction);
-      const response = await this.rpcServer.sendTransaction(preparedTransaction);
-
-      if (response.status === 'PENDING') {
-        const result = await this.pollTransactionResult(response.hash);
-        const balances = scValToNative(result.returnValue);
-        
-        return {
-          totalBalance: balances.total_balance.toString(),
-          leaderboardPool: balances.leaderboard_pool.toString(),
-          creatorPool: balances.creator_pool.toString(),
-          platformFees: balances.platform_fees.toString(),
-        };
+      const sim = await this.rpcServer.simulateTransaction(builtTransaction);
+      if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+        throw new Error('Failed to fetch treasury balances');
       }
 
-      throw new Error('Failed to fetch treasury balances');
+      const balances = scValToNative(sim.result.retval) as any;
+
+      return {
+        totalBalance: balances.total_balance?.toString() || '0',
+        leaderboardPool: balances.leaderboard_pool?.toString() || '0',
+        creatorPool: balances.creator_pool?.toString() || '0',
+        platformFees: balances.platform_fees?.toString() || '0',
+      };
     } catch (error) {
       throw new Error(
         `Treasury balance fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -88,6 +91,9 @@ export class TreasuryService {
   async distributeLeaderboard(recipients: Array<{ address: string; amount: string }>): Promise<DistributeResult> {
     if (!this.treasuryContractId) {
       throw new Error('Treasury contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     try {
@@ -117,7 +123,7 @@ export class TreasuryService {
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);
-        
+
         const totalDistributed = recipients.reduce(
           (sum, r) => sum + BigInt(r.amount),
           BigInt(0)
@@ -141,6 +147,9 @@ export class TreasuryService {
   async distributeCreator(marketId: string, creatorAddress: string, amount: string): Promise<DistributeResult> {
     if (!this.treasuryContractId) {
       throw new Error('Treasury contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     try {
@@ -190,16 +199,16 @@ export class TreasuryService {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       const transaction = await this.rpcServer.getTransaction(hash);
-      
+
       if (transaction.status === 'SUCCESS') {
         return transaction;
       }
-      
+
       if (transaction.status === 'FAILED') {
         throw new Error('Transaction failed');
       }
     }
-    
+
     throw new Error('Transaction polling timeout');
   }
 }

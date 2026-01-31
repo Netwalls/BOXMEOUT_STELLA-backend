@@ -1,6 +1,4 @@
-
-
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { config } from 'dotenv';
 
 // Load environment variables
@@ -27,17 +25,20 @@ import {
   corsMiddleware,
   xssProtection,
   frameGuard,
-  noCache
+  noCache,
 } from './middleware/security.middleware.js';
 
 import { requestLogger } from './middleware/logging.middleware.js';
-import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
+import {
+  errorHandler,
+  notFoundHandler,
+} from './middleware/error.middleware.js';
 import {
   authRateLimiter,
   challengeRateLimiter,
   apiRateLimiter,
   refreshRateLimiter,
-  sensitiveOperationRateLimiter
+  sensitiveOperationRateLimiter,
 } from './middleware/rateLimit.middleware.js';
 
 // Import Swagger setup
@@ -109,7 +110,7 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     environment: NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0'
+    version: process.env.npm_package_version || '1.0.0',
   });
 });
 
@@ -222,23 +223,6 @@ app.use(notFoundHandler);
 
 // Use the new global error handler
 app.use(errorHandler);
-/**
- * Global error handler
- */
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Unhandled error:', err);
-
-  res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message:
-        NODE_ENV === 'production'
-          ? 'An unexpected error occurred'
-          : err.message,
-    },
-  });
-});
 
 // =============================================================================
 // SERVER STARTUP
@@ -320,5 +304,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 
 export { startServer };
-export default app;
 export default app;

@@ -10,6 +10,8 @@ import {
   Keypair,
   nativeToScVal,
   scValToNative,
+  xdr,
+  SorobanRpc,
 } from '@stellar/stellar-sdk';
 
 interface BuySharesParams {
@@ -51,7 +53,6 @@ interface MarketOdds {
   totalLiquidity: number;
 }
 
-export class AMMService {
 interface CreatePoolParams {
   marketId: string; // hex string (BytesN<32>)
   initialLiquidity: bigint;
@@ -67,31 +68,7 @@ export class AmmService {
   private readonly rpcServer: rpc.Server;
   private readonly ammContractId: string;
   private readonly networkPassphrase: string;
-  private readonly adminKeypair: Keypair;
-
-  constructor() {
-    const rpcUrl =
-      process.env.STELLAR_SOROBAN_RPC_URL ??
-      'https://soroban-testnet.stellar.org';
-
-    const network =
-      process.env.STELLAR_NETWORK ?? 'testnet';
-
-    this.rpcServer = new rpc.Server(rpcUrl, {
-      allowHttp: rpcUrl.includes('localhost'),
-    });
-
-    this.ammContractId =
-      process.env.AMM_CONTRACT_ADDRESS ?? '';
-
-    this.networkPassphrase =
-      network === 'mainnet'
-        ? Networks.PUBLIC
-        : Networks.TESTNET;
-  private rpcServer: rpc.Server;
-  private ammContractId: string;
-  private networkPassphrase: string;
-  private adminKeypair: Keypair;
+  private readonly adminKeypair?: Keypair; // Optional - only needed for write operations
 
   constructor() {
     const rpcUrl =
@@ -108,16 +85,25 @@ export class AmmService {
 
     // Admin keypair for signing contract calls
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (!adminSecret) {
+    if (adminSecret) {
+      try {
+        this.adminKeypair = Keypair.fromSecret(adminSecret);
+      } catch (error) {
+        console.warn('Invalid ADMIN_WALLET_SECRET provided, contract writes will fail');
+      }
+    }
+
+    if (!this.adminKeypair) {
       // In development/testnet, generate a random keypair if not provided (prevents startup crash)
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)');
+        if (!adminSecret) {
+           console.warn('ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)');
+        }
         this.adminKeypair = Keypair.random();
       } else {
-        throw new Error('ADMIN_WALLET_SECRET not configured');
+         // In production, if strictly required we should fail, but leaving undefined is also handled by specific methods checks
+         if (!adminSecret) console.warn('ADMIN_WALLET_SECRET not configured');
       }
-    } else {
-      this.adminKeypair = Keypair.fromSecret(adminSecret);
     }
   }
 
@@ -127,22 +113,11 @@ export class AmmService {
    * @returns Shares received and transaction details
    */
   async buyShares(params: BuySharesParams): Promise<BuySharesResult> {
-    const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (!adminSecret) {
-      throw new Error('ADMIN_WALLET_SECRET not configured');
-    }
-
-    this.adminKeypair = Keypair.fromSecret(adminSecret);
-  }
-
-  /**
-   * Call AMM.create_pool(market_id, initial_liquidity)
-   */
-  async createPool(
-    params: CreatePoolParams,
-  ): Promise<CreatePoolResult> {
     if (!this.ammContractId) {
       throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+        throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     try {
@@ -212,6 +187,9 @@ export class AmmService {
   async sellShares(params: SellSharesParams): Promise<SellSharesResult> {
     if (!this.ammContractId) {
       throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+        throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     try {
@@ -285,7 +263,21 @@ export class AmmService {
 
     try {
       const contract = new Contract(this.ammContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      // For read-only calls, any source account works. 
+      // If adminKeypair is available, use it. Else random.
+      const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+      
+      let sourceAccount;
+      try {
+          sourceAccount = await this.rpcServer.getAccount(accountKey);
+      } catch (e) {
+          // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account 
+          // but simulateTransaction usually requires a valid sequence number.
+          // If in dev and "random" key was generated in constructor, it won't be on chain unless funded.
+          // This might be tricky. Let's assume if it fails we can't simulate easily.
+          console.warn('Could not load source account for getOdds simulation:', e);
+          throw e;
+      }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -319,6 +311,116 @@ export class AmmService {
         `Failed to get odds: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+
+  /**
+   * Call AMM.create_pool(market_id, initial_liquidity)
+   */
+  async createPool(params: CreatePoolParams): Promise<CreatePoolResult> {
+    if (!this.ammContractId) {
+        throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'create_pool',
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.initialLiquidity, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    prepared.sign(this.adminKeypair);
+
+    const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+    if (sendResponse.status !== 'PENDING') {
+      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
+    }
+
+    const txResult = await this.waitForTransaction(sendResponse.hash);
+
+    if (txResult.status !== 'SUCCESS') {
+      throw new Error('Transaction execution failed');
+    }
+
+    const { reserves, odds } = await this.getPoolState(params.marketId);
+
+    return {
+      txHash: sendResponse.hash,
+      reserves,
+      odds,
+    };
+  }
+
+  /**
+   * Read-only call: get pool state
+   */
+  async getPoolState(marketId: string): Promise<{
+    reserves: { yes: bigint; no: bigint };
+    odds: { yes: number; no: number };
+  }> {
+    const contract = new Contract(this.ammContractId);
+
+    // For read-only calls, separate handling
+    const accountKey =
+      this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+
+    let sourceAccount;
+    try {
+        sourceAccount = await this.rpcServer.getAccount(accountKey);
+    } catch(e) {
+         console.warn('Could not load source account for getPoolState simulation:', e);
+         throw e; 
+    }
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'get_pool',
+          nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await this.rpcServer.simulateTransaction(builtTx);
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+      throw new Error('Failed to fetch pool state');
+    }
+
+    const native = scValToNative(sim.result.retval) as Record<string, unknown>;
+
+    const reserves = {
+      yes: BigInt((native.r_yes ?? native.yes ?? 0) as bigint),
+      no: BigInt((native.r_no ?? native.no ?? 0) as bigint),
+    };
+
+    const odds = {
+      yes: Number(native.odds_yes ?? native.yes_odds ?? 0.5),
+      no: Number(native.odds_no ?? native.no_odds ?? 0.5),
+    };
+
+    return { reserves, odds };
   }
 
   /**
@@ -445,192 +547,8 @@ export class AmmService {
     }
   }
 
-  /**
-   * Sleep utility
-   * @param ms - Milliseconds to sleep
-   */
-    // Build contract call
-    const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(
-      this.adminKeypair.publicKey(),
-      this.adminKeypair.publicKey()
-    );
-
-    const tx = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        contract.call(
-          'create_pool',
-          nativeToScVal(
-            Buffer.from(
-              params.marketId.replace(/^0x/, ''),
-              'hex',
-            ),
-          ),
-          nativeToScVal(params.initialLiquidity, {
-            type: 'i128',
-          }),
-        ),
-      )
-      .setTimeout(30)
-      .build();
-
-    const prepared =
-      await this.rpcServer.prepareTransaction(tx);
-
-    prepared.sign(this.adminKeypair);
-
-    const sendResponse =
-      await this.rpcServer.sendTransaction(prepared);
-
-    if (sendResponse.status !== 'PENDING') {
-      throw new Error(
-        `Transaction submission failed: ${sendResponse.status}`,
-      );
-    }
-
-    const txResult = await this.waitForTransaction(
-      sendResponse.hash,
-    );
-
-    if (txResult.status !== 'SUCCESS') {
-      throw new Error('Transaction execution failed');
-    }
-
-    const { reserves, odds } =
-      await this.getPoolState(params.marketId);
-
-    return {
-      txHash: sendResponse.hash,
-      reserves,
-      odds,
-    };
-  }
-
-  /**
-   * Read-only call: get pool state
-   */
-  async getPoolState(
-    marketId: string,
-  async getPoolState(
-    marketId: string
-  ): Promise<{
-    reserves: { yes: bigint; no: bigint };
-    odds: { yes: number; no: number };
-  }> {
-    const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(
-      this.adminKeypair.publicKey(),
-      this.adminKeypair.publicKey()
-    );
-
-    const tx = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        contract.call(
-          'get_pool',
-          nativeToScVal(
-            Buffer.from(
-              marketId.replace(/^0x/, ''),
-              'hex',
-            ),
-          ),
-        ),
-      )
-      .setTimeout(30)
-      .build();
-
-    const simulation =
-      await this.rpcServer.simulateTransaction(tx);
-
-    if (!this.isSimulationSuccess(simulation)) {
-    const sim = await this.rpcServer.simulateTransaction(builtTx);
-    if (!rpc.Api.isSimulationSuccess(sim)) {
-      throw new Error('Failed to fetch pool state');
-    }
-
-    const native = scValToNative(
-      simulation.result.retval,
-    ) as Record<string, unknown>;
-
-    const reserves = {
-      yes: BigInt(
-        (native.r_yes ??
-          native.yes ??
-          0) as bigint,
-      ),
-      no: BigInt(
-        (native.r_no ??
-          native.no ??
-          0) as bigint,
-      ),
-    };
-
-    const odds = {
-      yes: Number(
-        native.odds_yes ??
-          native.yes_odds ??
-          0.5,
-      ),
-      no: Number(
-        native.odds_no ??
-          native.no_odds ??
-          0.5,
-      ),
-    };
-
-    return { reserves, odds };
-  }
-
-  /**
-   * Wait for transaction finality
-   */
-  private async waitForTransaction(
-    txHash: string,
-    maxRetries = 10,
-  ) {
-    for (let i = 0; i < maxRetries; i++) {
-      const tx =
-        await this.rpcServer.getTransaction(txHash);
-
-      if (tx.status === 'SUCCESS') return tx;
-      if (tx.status === 'FAILED') {
-        throw new Error('Transaction failed on-chain');
-      }
-
-  private async waitForTransaction(
-    txHash: string,
-    maxRetries: number = 10
-  ): Promise<any> {
-    let retries = 0;
-    while (retries < maxRetries) {
-      const tx = await this.rpcServer.getTransaction(txHash);
-      if (tx.status === 'SUCCESS') return tx;
-      if (tx.status === 'FAILED')
-        throw new Error('Transaction failed on blockchain');
-      await this.sleep(2000);
-    }
-
-    throw new Error('Transaction confirmation timeout');
-  }
-
-  /**
-   * Type guard for successful simulation
-   */
-  private isSimulationSuccess(
-    response: any,
-  ): response is { result: any } {
-    return 'result' in response;
-  }
-
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve =>
-      setTimeout(resolve, ms),
-    );
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

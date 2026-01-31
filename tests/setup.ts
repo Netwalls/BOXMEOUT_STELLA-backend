@@ -41,20 +41,6 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => { });
 });
 
-// Mock Keypair to avoid secret validation errors
-vi.mock('@stellar/stellar-sdk', async () => {
-  const actual = (await vi.importActual('@stellar/stellar-sdk')) as any;
-  return {
-    ...actual,
-    Keypair: {
-      ...actual.Keypair,
-      fromSecret: vi.fn().mockReturnValue({
-        publicKey: () =>
-          'GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-      }),
-    },
-  };
-});
 
 // Database setup (only for integration tests that actually need it)
 let prisma: PrismaClient | null = null;

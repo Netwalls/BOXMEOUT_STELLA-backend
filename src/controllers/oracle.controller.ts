@@ -52,12 +52,10 @@ export class OracleController {
       });
     } catch (error) {
       console.error('Attest error:', error);
-      res
-        .status(500)
-        .json({
-          success: false,
-          error: error instanceof Error ? error.message : 'Attestation failed',
-        });
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Attestation failed',
+      });
     }
   }
 
@@ -102,12 +100,10 @@ export class OracleController {
       });
     } catch (error) {
       console.error('Resolve error:', error);
-      res
-        .status(500)
-        .json({
-          success: false,
-          error: error instanceof Error ? error.message : 'Resolution failed',
-        });
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Resolution failed',
+      });
     }
   }
 
@@ -147,12 +143,10 @@ export class OracleController {
       });
     } catch (error) {
       console.error('Claim error:', error);
-      res
-        .status(500)
-        .json({
-          success: false,
-          error: error instanceof Error ? error.message : 'Claiming failed',
-        });
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Claiming failed',
+      });
     }
   }
 }

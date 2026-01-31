@@ -30,14 +30,17 @@ export class TreasuryService {
   private adminKeypair?: Keypair; // Optional - only needed for write operations
 
   constructor() {
-    const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const rpcUrl =
+      process.env.STELLAR_SOROBAN_RPC_URL ||
+      'https://soroban-testnet.stellar.org';
     const network = process.env.STELLAR_NETWORK || 'testnet';
 
-    this.rpcServer = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.includes('localhost') });
+    this.rpcServer = new rpc.Server(rpcUrl, {
+      allowHttp: rpcUrl.includes('localhost'),
+    });
     this.treasuryContractId = process.env.TREASURY_CONTRACT_ADDRESS || '';
-    this.networkPassphrase = network === 'mainnet'
-      ? Networks.PUBLIC
-      : Networks.TESTNET;
+    this.networkPassphrase =
+      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
     if (adminSecret) {
@@ -57,7 +60,8 @@ export class TreasuryService {
     try {
       const contract = new Contract(this.treasuryContractId);
       // Read-only call - use admin if available, otherwise dummy keypair
-      const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+      const accountKey =
+        this.adminKeypair?.publicKey() || Keypair.random().publicKey();
       const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -88,20 +92,26 @@ export class TreasuryService {
     }
   }
 
-  async distributeLeaderboard(recipients: Array<{ address: string; amount: string }>): Promise<DistributeResult> {
+  async distributeLeaderboard(
+    recipients: Array<{ address: string; amount: string }>
+  ): Promise<DistributeResult> {
     if (!this.treasuryContractId) {
       throw new Error('Treasury contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     try {
       const contract = new Contract(this.treasuryContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       const recipientsScVal = nativeToScVal(
-        recipients.map(r => ({
+        recipients.map((r) => ({
           address: r.address,
           amount: BigInt(r.amount),
         })),
@@ -116,18 +126,19 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
       preparedTransaction.sign(this.adminKeypair);
 
-      const response = await this.rpcServer.sendTransaction(preparedTransaction);
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);
 
-        const totalDistributed = recipients.reduce(
-          (sum, r) => sum + BigInt(r.amount),
-          BigInt(0)
-        ).toString();
+        const totalDistributed = recipients
+          .reduce((sum, r) => sum + BigInt(r.amount), BigInt(0))
+          .toString();
 
         return {
           txHash: response.hash,
@@ -144,17 +155,25 @@ export class TreasuryService {
     }
   }
 
-  async distributeCreator(marketId: string, creatorAddress: string, amount: string): Promise<DistributeResult> {
+  async distributeCreator(
+    marketId: string,
+    creatorAddress: string,
+    amount: string
+  ): Promise<DistributeResult> {
     if (!this.treasuryContractId) {
       throw new Error('Treasury contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     try {
       const contract = new Contract(this.treasuryContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -171,10 +190,12 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
       preparedTransaction.sign(this.adminKeypair);
 
-      const response = await this.rpcServer.sendTransaction(preparedTransaction);
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);
@@ -194,9 +215,12 @@ export class TreasuryService {
     }
   }
 
-  private async pollTransactionResult(hash: string, maxAttempts = 20): Promise<any> {
+  private async pollTransactionResult(
+    hash: string,
+    maxAttempts = 20
+  ): Promise<any> {
     for (let i = 0; i < maxAttempts; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const transaction = await this.rpcServer.getTransaction(hash);
 

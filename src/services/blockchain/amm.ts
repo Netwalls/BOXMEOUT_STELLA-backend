@@ -62,7 +62,9 @@ export class AmmService {
     }
 
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     const contract = new Contract(this.ammContractId);
@@ -77,11 +79,9 @@ export class AmmService {
       .addOperation(
         contract.call(
           'create_pool',
-          nativeToScVal(
-            Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
-          ),
-          nativeToScVal(params.initialLiquidity, { type: 'i128' }),
-        ),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.initialLiquidity, { type: 'i128' })
+        )
       )
       .setTimeout(30)
       .build();
@@ -92,9 +92,7 @@ export class AmmService {
     const sendResponse = await this.rpcServer.sendTransaction(prepared);
 
     if (sendResponse.status !== 'PENDING') {
-      throw new Error(
-        `Transaction submission failed: ${sendResponse.status}`,
-      );
+      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
 
     const txResult = await this.waitForTransaction(sendResponse.hash);
@@ -122,7 +120,8 @@ export class AmmService {
     const contract = new Contract(this.ammContractId);
 
     // For read-only calls, use admin if available, otherwise use dummy keypair
-    const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+    const accountKey =
+      this.adminKeypair?.publicKey() || Keypair.random().publicKey();
     const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
     const builtTx = new TransactionBuilder(sourceAccount, {
@@ -132,8 +131,8 @@ export class AmmService {
       .addOperation(
         contract.call(
           'get_pool',
-          nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex')),
-        ),
+          nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
+        )
       )
       .setTimeout(30)
       .build();
@@ -179,7 +178,7 @@ export class AmmService {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

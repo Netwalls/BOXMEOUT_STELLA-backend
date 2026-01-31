@@ -55,7 +55,9 @@ export class FactoryService {
       try {
         this.adminKeypair = Keypair.fromSecret(adminSecret);
       } catch (error) {
-        console.warn('Invalid ADMIN_WALLET_SECRET provided, contract writes will fail');
+        console.warn(
+          'Invalid ADMIN_WALLET_SECRET provided, contract writes will fail'
+        );
       }
     }
   }
@@ -63,15 +65,15 @@ export class FactoryService {
   /**
    * Call Factory.create_market() contract function
    */
-  async createMarket(
-    params: CreateMarketParams,
-  ): Promise<CreateMarketResult> {
+  async createMarket(params: CreateMarketParams): Promise<CreateMarketResult> {
     if (!this.factoryContractId) {
       throw new Error('Factory contract address not configured');
     }
 
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     try {
@@ -100,8 +102,8 @@ export class FactoryService {
             nativeToScVal(params.description, { type: 'string' }),
             nativeToScVal(params.category, { type: 'string' }),
             nativeToScVal(closingTimeUnix, { type: 'u64' }),
-            nativeToScVal(resolutionTimeUnix, { type: 'u64' }),
-          ),
+            nativeToScVal(resolutionTimeUnix, { type: 'u64' })
+          )
         )
         .setTimeout(30)
         .build();
@@ -145,8 +147,9 @@ export class FactoryService {
     } catch (error) {
       console.error('Factory.create_market() error:', error);
       throw new Error(
-        `Failed to create market: ${error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        `Failed to create market: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -240,7 +243,8 @@ export class FactoryService {
 
       // For read-only calls, we can use any source account
       // Use admin if available, otherwise use a dummy keypair
-      const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+      const accountKey =
+        this.adminKeypair?.publicKey() || Keypair.random().publicKey();
       const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {

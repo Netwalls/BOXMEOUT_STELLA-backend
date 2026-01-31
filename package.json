@@ -30,6 +30,7 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "@stellar/stellar-sdk": "^14.4.3",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.6",
     "dotenv": "^16.4.7",
@@ -50,7 +51,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@stellar/stellar-sdk": "^14.4.3",
     "@types/bcrypt": "^5.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
@@ -69,7 +69,7 @@
     "@vitest/coverage-v8": "^2.1.8",
     "eslint": "^8.57.0",
     "nodemon": "^3.1.11",
-    "prettier": "^3.3.3",
+    "prettier": "^3.8.1",
     "prisma": "^5.22.0",
     "supertest": "^7.2.2",
     "tsx": "^4.19.2",

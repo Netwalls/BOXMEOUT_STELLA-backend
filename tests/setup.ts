@@ -2,35 +2,15 @@ import { config } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { execSync } from 'child_process';
 import { beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
 
-config(); // Load environment variables before anything else
+// Load environment variables before anything else
+config();
 
 // Set test environment
 process.env.NODE_ENV = 'test';
 
-// Mock console methods to keep test output clean for middleware tests
-beforeEach(() => {
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'info').mockImplementation(() => {});
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
-config(); // Load environment variables before anything else
-
-// Set test defaults if not provided
-if (!process.env.JWT_ACCESS_SECRET) {
-  process.env.JWT_ACCESS_SECRET = 'test-jwt-access-secret-min-32-chars-here-for-testing';
-}
-if (!process.env.JWT_REFRESH_SECRET) {
-  process.env.JWT_REFRESH_SECRET = 'test-jwt-refresh-secret-min-32-chars-here-for-testing';
-}
-if (!process.env.ENCRYPTION_KEY) {
-  process.env.ENCRYPTION_KEY = 'test-encryption-key-32-chars!!';
-}
-if (!process.env.DATABASE_URL_TEST && !process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = 'postgresql://postgres:password@localhost:5435/boxmeout_test';
-}
 // Set default env vars for testing if not present
-process.env.NODE_ENV = 'test';
 process.env.JWT_ACCESS_SECRET =
   process.env.JWT_ACCESS_SECRET ||
   'test-secret-access-token-minimum-32-characters-required';
@@ -41,6 +21,9 @@ process.env.DATABASE_URL =
   process.env.DATABASE_URL ||
   'postgresql://postgres:password@localhost:5432/boxmeout_test';
 process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-encryption-key-32-chars!!';
+
+// Stellar test configuration
 process.env.ADMIN_WALLET_SECRET =
   'SDJ7L4H6O7H7HH7HH7HH7HH7HH7HH7HH7HH7HH7HH7HH7HH7HH7HH';
 process.env.STELLAR_SOROBAN_RPC_URL = 'https://soroban-testnet.stellar.org';
@@ -49,15 +32,14 @@ process.env.FACTORY_CONTRACT_ADDRESS =
   'CAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
 process.env.AMM_CONTRACT_ADDRESS =
   'CAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
-process.env.JWT_ACCESS_SECRET =
-  process.env.JWT_ACCESS_SECRET || 'test-access-secret';
-process.env.JWT_REFRESH_SECRET =
-  process.env.JWT_REFRESH_SECRET || 'test-refresh-secret';
 
-import { PrismaClient } from '@prisma/client';
-import { execSync } from 'child_process';
-import { beforeAll, afterAll, vi } from 'vitest';
-import { Keypair } from '@stellar/stellar-sdk';
+// Mock console methods to keep test output clean for middleware tests
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => { });
+  vi.spyOn(console, 'info').mockImplementation(() => { });
+  vi.spyOn(console, 'warn').mockImplementation(() => { });
+  vi.spyOn(console, 'error').mockImplementation(() => { });
+});
 
 // Mock Keypair to avoid secret validation errors
 vi.mock('@stellar/stellar-sdk', async () => {
@@ -74,23 +56,10 @@ vi.mock('@stellar/stellar-sdk', async () => {
   };
 });
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url:
-        process.env.DATABASE_URL_TEST ||
-        process.env.DATABASE_URL ||
-        'postgresql://postgres:password@localhost:5432/boxmeout_test',
-    },
-  },
-});
-
 // Database setup (only for integration tests that actually need it)
 let prisma: PrismaClient | null = null;
-let isSetup = false;
 
 // Only setup database if we're running integration tests
-// Check if this is a unit test by looking at the test file path
 beforeAll(async () => {
   // Check if we should skip database setup (for unit tests)
   const isUnitTest = process.env.VITEST_TEST_FILE?.includes('middleware');
@@ -123,33 +92,18 @@ beforeAll(async () => {
         },
         stdio: 'pipe',
       });
-    } catch (error) {
+    } catch (error: any) {
       console.warn('⚠️ Database migrations may already be applied:', error.message);
     }
 
     if (prisma) {
       await cleanDatabase(prisma);
     }
-    isSetup = true;
   }
 });
 
 async function cleanDatabase(client: PrismaClient) {
   try {
-    // Delete all data in reverse order of dependencies (sequentially to respect foreign keys)
-    await prisma.trade.deleteMany();
-    await prisma.prediction.deleteMany();
-    await prisma.share.deleteMany();
-    await prisma.dispute.deleteMany();
-    await prisma.market.deleteMany();
-    await prisma.achievement.deleteMany();
-    await prisma.leaderboard.deleteMany();
-    await prisma.referral.deleteMany();
-    await prisma.refreshToken.deleteMany();
-    await prisma.transaction.deleteMany();
-    await prisma.distribution.deleteMany();
-    await prisma.auditLog.deleteMany();
-    await prisma.user.deleteMany();
     // Delete all data in reverse order of dependencies
     await client.trade.deleteMany();
     await client.prediction.deleteMany();
@@ -161,6 +115,7 @@ async function cleanDatabase(client: PrismaClient) {
     await client.referral.deleteMany();
     await client.refreshToken.deleteMany();
     await client.transaction.deleteMany();
+    await client.distribution.deleteMany();
     await client.auditLog.deleteMany();
     await client.user.deleteMany();
   } catch (error) {

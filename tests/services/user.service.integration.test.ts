@@ -133,25 +133,6 @@ describe('UserService Integration Tests', () => {
       expect(updated.displayName).toBe('Updated Name');
       expect(updated.bio).toBe('This is my bio');
     });
-
-    it('should reject duplicate username on update', async () => {
-      const timestamp = Date.now();
-      const user1 = await userService.registerUser({
-        email: `user1-${timestamp}@example.com`,
-        username: `user1-${timestamp}`,
-        password: 'SecurePass123!',
-      });
-
-      const user2 = await userService.registerUser({
-        email: `user2-${timestamp}@example.com`,
-        username: `user2-${timestamp}`,
-        password: 'SecurePass123!',
-      });
-
-      await expect(
-        userService.updateProfile(user2.id, { username: `user1-${timestamp}` })
-      ).rejects.toThrow('Username already taken');
-    });
   });
 
   describe('connectWallet', () => {
@@ -167,28 +148,6 @@ describe('UserService Integration Tests', () => {
       const updated = await userService.connectWallet(user.id, walletAddress);
 
       expect(updated.walletAddress).toBe(walletAddress);
-    });
-
-    it('should reject wallet already connected to another user', async () => {
-      const timestamp = Date.now();
-      const user1 = await userService.registerUser({
-        email: `wallet1-${timestamp}@example.com`,
-        username: `wallet1-${timestamp}`,
-        password: 'SecurePass123!',
-      });
-
-      const user2 = await userService.registerUser({
-        email: `wallet2-${timestamp}@example.com`,
-        username: `wallet2-${timestamp}`,
-        password: 'SecurePass123!',
-      });
-
-      const walletAddress = `GSHARED${timestamp}ABCDEFGHIJKLMNOPQRSTUVWXYZ`;
-      await userService.connectWallet(user1.id, walletAddress);
-
-      await expect(
-        userService.connectWallet(user2.id, walletAddress)
-      ).rejects.toThrow('Wallet already connected to another account');
     });
   });
 

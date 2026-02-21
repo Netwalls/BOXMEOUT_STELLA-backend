@@ -13,6 +13,7 @@ import {
   xdr,
   Address,
 } from '@stellar/stellar-sdk';
+import { logger } from '../../utils/logger.js';
 
 interface CreateMarketParams {
   title: string;
@@ -57,7 +58,7 @@ export class FactoryService {
       try {
         this.adminKeypair = Keypair.fromSecret(adminSecret);
       } catch (error) {
-        console.warn(
+        logger.warn(
           'Invalid ADMIN_WALLET_SECRET provided, contract writes will fail'
         );
       }
@@ -167,7 +168,7 @@ export class FactoryService {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
     } catch (error) {
-      console.error('Factory.create_market() error:', error);
+      logger.error('Factory.create_market() error', { error });
       throw new Error(
         `Failed to create market: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -239,7 +240,7 @@ export class FactoryService {
         throw new Error('Unexpected return value type');
       }
     } catch (error) {
-      console.error('Error extracting market_id:', error);
+      logger.error('Error extracting market_id', { error });
       throw new Error('Failed to extract market ID from contract response');
     }
   }
@@ -298,7 +299,7 @@ export class FactoryService {
 
       throw new Error('Failed to get market count');
     } catch (error) {
-      console.error('getMarketCount error:', error);
+      logger.error('getMarketCount error', { error });
       return 0;
     }
   }

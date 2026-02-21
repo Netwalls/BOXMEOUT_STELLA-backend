@@ -12,6 +12,7 @@ import {
   scValToNative,
   xdr,
 } from '@stellar/stellar-sdk';
+import { logger } from '../../utils/logger.js';
 
 interface BuySharesParams {
   marketId: string;
@@ -88,7 +89,7 @@ export class AmmService {
       try {
         this.adminKeypair = Keypair.fromSecret(adminSecret);
       } catch (error) {
-        console.warn('Invalid ADMIN_WALLET_SECRET provided, contract writes will fail');
+        logger.warn('Invalid ADMIN_WALLET_SECRET for AMM service');
       }
     }
 
@@ -96,12 +97,12 @@ export class AmmService {
       // In development/testnet, generate a random keypair if not provided (prevents startup crash)
       if (process.env.NODE_ENV !== 'production') {
         if (!adminSecret) {
-           console.warn('ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)');
+          console.warn('ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)');
         }
         this.adminKeypair = Keypair.random();
       } else {
-         // In production, if strictly required we should fail, but leaving undefined is also handled by specific methods checks
-         if (!adminSecret) console.warn('ADMIN_WALLET_SECRET not configured');
+        // In production, if strictly required we should fail, but leaving undefined is also handled by specific methods checks
+        if (!adminSecret) console.warn('ADMIN_WALLET_SECRET not configured');
       }
     }
   }
@@ -116,7 +117,7 @@ export class AmmService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-        throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     try {
@@ -188,7 +189,7 @@ export class AmmService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-        throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     try {
@@ -265,17 +266,17 @@ export class AmmService {
       // For read-only calls, any source account works. 
       // If adminKeypair is available, use it. Else random.
       const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
-      
+
       let sourceAccount;
       try {
-          sourceAccount = await this.rpcServer.getAccount(accountKey);
+        sourceAccount = await this.rpcServer.getAccount(accountKey);
       } catch (e) {
-          // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account 
-          // but simulateTransaction usually requires a valid sequence number.
-          // If in dev and "random" key was generated in constructor, it won't be on chain unless funded.
-          // This might be tricky. Let's assume if it fails we can't simulate easily.
-          console.warn('Could not load source account for getOdds simulation:', e);
-          throw e;
+        // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account 
+        // but simulateTransaction usually requires a valid sequence number.
+        // If in dev and "random" key was generated in constructor, it won't be on chain unless funded.
+        // This might be tricky. Let's assume if it fails we can't simulate easily.
+        console.warn('Could not load source account for getOdds simulation:', e);
+        throw e;
       }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -299,7 +300,7 @@ export class AmmService {
         if (!result) {
           throw new Error('No return value from simulation');
         }
-        
+
         return this.parseOddsResult(result);
       }
 
@@ -317,7 +318,7 @@ export class AmmService {
    */
   async createPool(params: CreatePoolParams): Promise<CreatePoolResult> {
     if (!this.ammContractId) {
-        throw new Error('AMM contract address not configured');
+      throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
       throw new Error(
@@ -383,10 +384,10 @@ export class AmmService {
 
     let sourceAccount;
     try {
-        sourceAccount = await this.rpcServer.getAccount(accountKey);
-    } catch(e) {
-         console.warn('Could not load source account for getPoolState simulation:', e);
-         throw e; 
+      sourceAccount = await this.rpcServer.getAccount(accountKey);
+    } catch (e) {
+      console.warn('Could not load source account for getPoolState simulation:', e);
+      throw e;
     }
 
     const builtTx = new TransactionBuilder(sourceAccount, {

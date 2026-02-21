@@ -30,6 +30,7 @@ import {
 
 import { requestIdMiddleware } from './middleware/requestId.middleware.js';
 import { requestLogger } from './middleware/logging.middleware.js';
+import { metricsMiddleware } from './middleware/metrics.middleware.js';
 import { logger } from './utils/logger.js';
 import {
   errorHandler,
@@ -74,12 +75,19 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestIdMiddleware);
 app.use(requestLogger);
 
+// Metrics tracking middleware
+app.use(metricsMiddleware);
+
 // Trust proxy (for rate limiting behind reverse proxy)
 app.set('trust proxy', 1);
 
 // Health Routes
 import healthRoutes from './routes/health.js';
 app.use('/api', healthRoutes);
+
+// Metrics Routes (before rate limiting)
+import metricsRoutes from './routes/metrics.routes.js';
+app.use('/metrics', metricsRoutes);
 
 /**
  * @swagger
@@ -182,24 +190,6 @@ app.use('/api', apiRateLimiter);
 
 // Authentication routes with specific rate limiting
 app.use('/api/auth', authRateLimiter, authRoutes);
-// Metrics
-import client from 'prom-client';
-// Collect default metrics
-const collectDefaultMetrics = client.collectDefaultMetrics;
-collectDefaultMetrics({ register: client.register });
-
-app.get('/metrics', async (_req: Request, res: Response) => {
-  try {
-    res.set('Content-Type', client.register.contentType);
-    const metrics = await client.register.metrics();
-    res.end(metrics);
-  } catch (error) {
-    res.status(500).end(error);
-  }
-});
-
-// Authentication routes
-app.use('/api/auth', authRoutes);
 
 // Market routes
 app.use('/api/markets', marketRoutes);

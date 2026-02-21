@@ -52,7 +52,7 @@ export class FactoryService {
 
     // Admin keypair is optional - only needed for contract write operations
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    
+
     // Try to load from secret if provided
     if (adminSecret) {
       try {
@@ -69,16 +69,18 @@ export class FactoryService {
       // In development/testnet, generate a random keypair if not provided (prevents startup crash)
       if (process.env.NODE_ENV !== 'production') {
         if (!adminSecret) {
-           console.warn('ADMIN_WALLET_SECRET not configured, using random keypair for development (Warning: No funds)');
+          console.warn(
+            'ADMIN_WALLET_SECRET not configured, using random keypair for development (Warning: No funds)'
+          );
         }
         this.adminKeypair = Keypair.random();
       } else {
         if (!adminSecret) {
-            // In PROD, if secret missing, throw or just warn? HEAD threw error.
-            throw new Error('ADMIN_WALLET_SECRET not configured');
+          // In PROD, if secret missing, throw or just warn? HEAD threw error.
+          throw new Error('ADMIN_WALLET_SECRET not configured');
         }
         // If secret was present but invalid (meaning this.adminKeypair is undefined), we might just leave it undefined and fail later?
-        // But HEAD logic threw if !adminSecret. 
+        // But HEAD logic threw if !adminSecret.
         // I'll leave it as is: if !adminKeypair and we are here, it means either !adminSecret (handled above) or invalid.
         // If invalid, we already warned.
       }
@@ -268,15 +270,18 @@ export class FactoryService {
       // Use admin if available, otherwise use a dummy keypair
       const accountKey =
         this.adminKeypair?.publicKey() || Keypair.random().publicKey();
-      
+
       let sourceAccount;
       try {
         sourceAccount = await this.rpcServer.getAccount(accountKey);
       } catch (e) {
         // Fallback for simulation
-         console.warn('Could not load source account for getMarketCount simulation:', e);
-         // If we don't return 0 here, it will fail below
-         return 0;
+        console.warn(
+          'Could not load source account for getMarketCount simulation:',
+          e
+        );
+        // If we don't return 0 here, it will fail below
+        return 0;
       }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {

@@ -97,7 +97,9 @@ export class AmmService {
       // In development/testnet, generate a random keypair if not provided (prevents startup crash)
       if (process.env.NODE_ENV !== 'production') {
         if (!adminSecret) {
-          console.warn('ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)');
+          console.warn(
+            'ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)'
+          );
         }
         this.adminKeypair = Keypair.random();
       } else {
@@ -117,12 +119,16 @@ export class AmmService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     try {
       const contract = new Contract(this.ammContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       // Build the contract call operation
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -142,13 +148,15 @@ export class AmmService {
         .build();
 
       // Prepare transaction for the network
-      const preparedTransaction = await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
 
       // Sign transaction
       preparedTransaction.sign(this.adminKeypair);
 
       // Submit transaction
-      const response = await this.rpcServer.sendTransaction(preparedTransaction);
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
@@ -167,7 +175,9 @@ export class AmmService {
           throw new Error(`Transaction failed: ${result.status}`);
         }
       } else if (response.status === 'ERROR') {
-        throw new Error(`Transaction submission error: ${response.errorResult}`);
+        throw new Error(
+          `Transaction submission error: ${response.errorResult}`
+        );
       } else {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
@@ -189,12 +199,16 @@ export class AmmService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     try {
       const contract = new Contract(this.ammContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       // Build the contract call operation
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -214,13 +228,15 @@ export class AmmService {
         .build();
 
       // Prepare transaction for the network
-      const preparedTransaction = await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
 
       // Sign transaction
       preparedTransaction.sign(this.adminKeypair);
 
       // Submit transaction
-      const response = await this.rpcServer.sendTransaction(preparedTransaction);
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
@@ -239,7 +255,9 @@ export class AmmService {
           throw new Error(`Transaction failed: ${result.status}`);
         }
       } else if (response.status === 'ERROR') {
-        throw new Error(`Transaction submission error: ${response.errorResult}`);
+        throw new Error(
+          `Transaction submission error: ${response.errorResult}`
+        );
       } else {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
@@ -263,19 +281,23 @@ export class AmmService {
 
     try {
       const contract = new Contract(this.ammContractId);
-      // For read-only calls, any source account works. 
+      // For read-only calls, any source account works.
       // If adminKeypair is available, use it. Else random.
-      const accountKey = this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+      const accountKey =
+        this.adminKeypair?.publicKey() || Keypair.random().publicKey();
 
       let sourceAccount;
       try {
         sourceAccount = await this.rpcServer.getAccount(accountKey);
       } catch (e) {
-        // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account 
+        // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account
         // but simulateTransaction usually requires a valid sequence number.
         // If in dev and "random" key was generated in constructor, it won't be on chain unless funded.
         // This might be tricky. Let's assume if it fails we can't simulate easily.
-        console.warn('Could not load source account for getOdds simulation:', e);
+        console.warn(
+          'Could not load source account for getOdds simulation:',
+          e
+        );
         throw e;
       }
 
@@ -284,16 +306,14 @@ export class AmmService {
         networkPassphrase: this.networkPassphrase,
       })
         .addOperation(
-          contract.call(
-            'get_odds',
-            nativeToScVal(marketId, { type: 'string' })
-          )
+          contract.call('get_odds', nativeToScVal(marketId, { type: 'string' }))
         )
         .setTimeout(30)
         .build();
 
       // Simulate transaction to get result without submitting
-      const simulationResponse = await this.rpcServer.simulateTransaction(builtTransaction);
+      const simulationResponse =
+        await this.rpcServer.simulateTransaction(builtTransaction);
 
       if (rpc.Api.isSimulationSuccess(simulationResponse)) {
         const result = simulationResponse.result?.retval;
@@ -386,7 +406,10 @@ export class AmmService {
     try {
       sourceAccount = await this.rpcServer.getAccount(accountKey);
     } catch (e) {
-      console.warn('Could not load source account for getPoolState simulation:', e);
+      console.warn(
+        'Could not load source account for getPoolState simulation:',
+        e
+      );
       throw e;
     }
 
@@ -429,7 +452,10 @@ export class AmmService {
    * @param maxRetries - Maximum number of retries
    * @returns Transaction result
    */
-  private async waitForTransaction(txHash: string, maxRetries: number = 10): Promise<any> {
+  private async waitForTransaction(
+    txHash: string,
+    maxRetries: number = 10
+  ): Promise<any> {
     let retries = 0;
 
     while (retries < maxRetries) {
@@ -471,7 +497,9 @@ export class AmmService {
    * @param returnValue - Contract return value
    * @returns Parsed buy result
    */
-  private parseBuySharesResult(returnValue: xdr.ScVal | undefined): Omit<BuySharesResult, 'txHash'> {
+  private parseBuySharesResult(
+    returnValue: xdr.ScVal | undefined
+  ): Omit<BuySharesResult, 'txHash'> {
     if (!returnValue) {
       throw new Error('No return value from contract');
     }
@@ -481,7 +509,9 @@ export class AmmService {
       const result = scValToNative(returnValue);
 
       return {
-        sharesReceived: Number(result.shares_received || result.sharesReceived || 0),
+        sharesReceived: Number(
+          result.shares_received || result.sharesReceived || 0
+        ),
         pricePerUnit: Number(result.price_per_unit || result.pricePerUnit || 0),
         totalCost: Number(result.total_cost || result.totalCost || 0),
         feeAmount: Number(result.fee_amount || result.feeAmount || 0),
@@ -497,7 +527,9 @@ export class AmmService {
    * @param returnValue - Contract return value
    * @returns Parsed sell result
    */
-  private parseSellSharesResult(returnValue: xdr.ScVal | undefined): Omit<SellSharesResult, 'txHash'> {
+  private parseSellSharesResult(
+    returnValue: xdr.ScVal | undefined
+  ): Omit<SellSharesResult, 'txHash'> {
     if (!returnValue) {
       throw new Error('No return value from contract');
     }
@@ -529,8 +561,12 @@ export class AmmService {
 
       const yesOdds = Number(result.yes_odds || result.yesOdds || 0.5);
       const noOdds = Number(result.no_odds || result.noOdds || 0.5);
-      const yesLiquidity = Number(result.yes_liquidity || result.yesLiquidity || 0);
-      const noLiquidity = Number(result.no_liquidity || result.noLiquidity || 0);
+      const yesLiquidity = Number(
+        result.yes_liquidity || result.yesLiquidity || 0
+      );
+      const noLiquidity = Number(
+        result.no_liquidity || result.noLiquidity || 0
+      );
 
       return {
         yesOdds,

@@ -92,7 +92,8 @@ export class RealtimeOddsBroadcaster {
   }
 
   subscribe(marketId: string, subscriberId: string): void {
-    const subscribers = this.marketSubscribers.get(marketId) ?? new Set<string>();
+    const subscribers =
+      this.marketSubscribers.get(marketId) ?? new Set<string>();
     subscribers.add(subscriberId);
     this.marketSubscribers.set(marketId, subscribers);
   }

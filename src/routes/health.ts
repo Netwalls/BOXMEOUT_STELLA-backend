@@ -109,7 +109,9 @@ async function checkSorobanHealth(): Promise<{
     const responseTime = Date.now() - startTime;
 
     if (response.ok) {
-      const data = await response.json();
+      const data = (await response.json()) as {
+        result?: { status?: string };
+      };
       return {
         status: data.result?.status === 'healthy' ? 'healthy' : 'unhealthy',
         reachable: true,

@@ -1,6 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { checkDatabaseConnection, prisma } from '../database/prisma.js';
-import { getRedisStatus, isRedisHealthy, getRedisClient } from '../config/redis.js';
+import {
+  getRedisStatus,
+  isRedisHealthy,
+  getRedisClient,
+} from '../config/redis.js';
 
 const router = Router();
 
@@ -45,7 +49,7 @@ async function checkRedisHealth(): Promise<{
     const client = getRedisClient();
     const pong = await client.ping();
     const responseTime = Date.now() - startTime;
-    
+
     if (pong === 'PONG') {
       return {
         status: 'healthy',
@@ -53,7 +57,7 @@ async function checkRedisHealth(): Promise<{
         responseTime,
       };
     }
-    
+
     return {
       status: 'unhealthy',
       connected: false,
@@ -79,7 +83,7 @@ async function checkSorobanHealth(): Promise<{
   endpoint?: string;
 }> {
   const rpcUrl = process.env.STELLAR_SOROBAN_RPC_URL;
-  
+
   if (!rpcUrl) {
     return {
       status: 'not_configured',
@@ -184,7 +188,7 @@ router.get('/ready', async (_req: Request, res: Response) => {
  */
 router.get('/health/deep', async (_req: Request, res: Response) => {
   const timestamp = new Date().toISOString();
-  
+
   // Run all health checks in parallel
   const [postgresHealth, redisHealth, sorobanHealth] = await Promise.all([
     checkPostgresHealth(),
@@ -196,7 +200,8 @@ router.get('/health/deep', async (_req: Request, res: Response) => {
   const allHealthy =
     postgresHealth.status === 'healthy' &&
     redisHealth.status === 'healthy' &&
-    (sorobanHealth.status === 'healthy' || sorobanHealth.status === 'not_configured');
+    (sorobanHealth.status === 'healthy' ||
+      sorobanHealth.status === 'not_configured');
 
   const statusCode = allHealthy ? 200 : 503;
   const overallStatus = allHealthy ? 'healthy' : 'degraded';

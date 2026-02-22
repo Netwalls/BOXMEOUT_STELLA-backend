@@ -116,9 +116,8 @@ export class UserService {
 
   async connectWallet(userId: string, walletAddress: string) {
     // Check if wallet already connected to another user
-    const existing = await this.userRepository.findByWalletAddress(
-      walletAddress
-    );
+    const existing =
+      await this.userRepository.findByWalletAddress(walletAddress);
     if (existing && existing.id !== userId) {
       throw new Error('Wallet already connected to another account');
     }

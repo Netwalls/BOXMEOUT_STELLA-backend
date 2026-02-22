@@ -25,9 +25,8 @@ export class TreasuryService {
       0
     );
 
-    const result = await blockchainTreasuryService.distributeLeaderboard(
-      recipients
-    );
+    const result =
+      await blockchainTreasuryService.distributeLeaderboard(recipients);
 
     const distribution = await this.distributionRepository.createDistribution({
       distributionType: DistributionType.LEADERBOARD,

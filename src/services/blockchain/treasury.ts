@@ -129,14 +129,12 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(
-        builtTransaction
-      );
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
       preparedTransaction.sign(this.adminKeypair);
 
-      const response = await this.rpcServer.sendTransaction(
-        preparedTransaction
-      );
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);
@@ -197,14 +195,12 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(
-        builtTransaction
-      );
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
       preparedTransaction.sign(this.adminKeypair);
 
-      const response = await this.rpcServer.sendTransaction(
-        preparedTransaction
-      );
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);

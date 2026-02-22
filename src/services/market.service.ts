@@ -244,9 +244,8 @@ export class MarketService {
   }
 
   private async settlePredictions(marketId: string, winningOutcome: number) {
-    const predictions = await this.predictionRepository.findMarketPredictions(
-      marketId
-    );
+    const predictions =
+      await this.predictionRepository.findMarketPredictions(marketId);
 
     await executeTransaction(async (tx) => {
       const predictionRepo = new PredictionRepository(tx);

@@ -67,14 +67,12 @@ export class MarketBlockchainService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(
-        builtTransaction
-      );
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
       preparedTransaction.sign(this.adminKeypair);
 
-      const response = await this.rpcServer.sendTransaction(
-        preparedTransaction
-      );
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
@@ -126,14 +124,12 @@ export class MarketBlockchainService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction = await this.rpcServer.prepareTransaction(
-        builtTransaction
-      );
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
       preparedTransaction.sign(this.adminKeypair);
 
-      const response = await this.rpcServer.sendTransaction(
-        preparedTransaction
-      );
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;

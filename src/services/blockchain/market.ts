@@ -67,12 +67,14 @@ export class MarketBlockchainService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction = await this.rpcServer.prepareTransaction(
+        builtTransaction
+      );
       preparedTransaction.sign(this.adminKeypair);
 
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
+      const response = await this.rpcServer.sendTransaction(
+        preparedTransaction
+      );
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
@@ -84,7 +86,9 @@ export class MarketBlockchainService {
     } catch (error) {
       logger.error('Market.resolve_market() error', { error });
       throw new Error(
-        `Failed to resolve market on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to resolve market on blockchain: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -122,12 +126,14 @@ export class MarketBlockchainService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction = await this.rpcServer.prepareTransaction(
+        builtTransaction
+      );
       preparedTransaction.sign(this.adminKeypair);
 
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
+      const response = await this.rpcServer.sendTransaction(
+        preparedTransaction
+      );
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
@@ -139,7 +145,9 @@ export class MarketBlockchainService {
     } catch (error) {
       logger.error('Market.claim_winnings() error', { error });
       throw new Error(
-        `Failed to claim winnings on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to claim winnings on blockchain: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }

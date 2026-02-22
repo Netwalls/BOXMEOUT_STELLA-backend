@@ -88,7 +88,9 @@ export class TreasuryService {
       };
     } catch (error) {
       throw new Error(
-        `Treasury balance fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Treasury balance fetch failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -127,12 +129,14 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction = await this.rpcServer.prepareTransaction(
+        builtTransaction
+      );
       preparedTransaction.sign(this.adminKeypair);
 
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
+      const response = await this.rpcServer.sendTransaction(
+        preparedTransaction
+      );
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);
@@ -151,7 +155,9 @@ export class TreasuryService {
       throw new Error('Transaction submission failed');
     } catch (error) {
       throw new Error(
-        `Leaderboard distribution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Leaderboard distribution failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -191,12 +197,14 @@ export class TreasuryService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction = await this.rpcServer.prepareTransaction(
+        builtTransaction
+      );
       preparedTransaction.sign(this.adminKeypair);
 
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
+      const response = await this.rpcServer.sendTransaction(
+        preparedTransaction
+      );
 
       if (response.status === 'PENDING') {
         await this.pollTransactionResult(response.hash);
@@ -211,7 +219,9 @@ export class TreasuryService {
       throw new Error('Transaction submission failed');
     } catch (error) {
       throw new Error(
-        `Creator distribution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Creator distribution failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }

@@ -5,7 +5,11 @@ import { trackHttpRequest, trackError } from '../config/metrics.js';
 /**
  * Middleware to track HTTP request metrics
  */
-export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
+export function metricsMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
   const startTime = Date.now();
 
   // Capture the original end function

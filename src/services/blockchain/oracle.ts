@@ -88,12 +88,14 @@ export class OracleService {
         .setTimeout(30)
         .build();
 
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction = await this.rpcServer.prepareTransaction(
+        builtTransaction
+      );
       preparedTransaction.sign(this.adminKeypair);
 
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
+      const response = await this.rpcServer.sendTransaction(
+        preparedTransaction
+      );
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
@@ -105,7 +107,9 @@ export class OracleService {
     } catch (error) {
       logger.error('Oracle.submit_attestation() error', { error });
       throw new Error(
-        `Failed to submit attestation on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to submit attestation on blockchain: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -140,8 +144,9 @@ export class OracleService {
         .setTimeout(30)
         .build();
 
-      const simulationResponse =
-        await this.rpcServer.simulateTransaction(builtTransaction);
+      const simulationResponse = await this.rpcServer.simulateTransaction(
+        builtTransaction
+      );
 
       if (rpc.Api.isSimulationSuccess(simulationResponse)) {
         const result = simulationResponse.result?.retval;

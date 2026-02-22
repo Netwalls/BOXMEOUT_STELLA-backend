@@ -219,7 +219,9 @@ export function trackHttpRequest(
   statusCode: number,
   duration: number
 ): void {
-  httpRequestDuration.labels(method, route, statusCode.toString()).observe(duration);
+  httpRequestDuration
+    .labels(method, route, statusCode.toString())
+    .observe(duration);
   httpRequestTotal.labels(method, route, statusCode.toString()).inc();
 }
 
@@ -250,7 +252,10 @@ export function trackBlockchainError(
 /**
  * Track prediction
  */
-export function trackPrediction(phase: 'commit' | 'reveal', marketId: string): void {
+export function trackPrediction(
+  phase: 'commit' | 'reveal',
+  marketId: string
+): void {
   predictionsPerMinute.labels(phase, marketId).inc();
 }
 
@@ -270,14 +275,20 @@ export function trackTrade(
 /**
  * Track error
  */
-export function trackError(errorType: string, route: string, statusCode: number): void {
+export function trackError(
+  errorType: string,
+  route: string,
+  statusCode: number
+): void {
   errorRate.labels(errorType, route, statusCode.toString()).inc();
 }
 
 /**
  * Track WebSocket connection
  */
-export function trackWebSocketConnection(event: 'connect' | 'disconnect'): void {
+export function trackWebSocketConnection(
+  event: 'connect' | 'disconnect'
+): void {
   websocketConnectionsTotal.labels(event).inc();
   if (event === 'connect') {
     activeWebSocketConnections.inc();

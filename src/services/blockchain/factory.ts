@@ -134,15 +134,17 @@ export class FactoryService {
         .build();
 
       // Prepare transaction for the network
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+      const preparedTransaction = await this.rpcServer.prepareTransaction(
+        builtTransaction
+      );
 
       // Sign transaction
       preparedTransaction.sign(this.adminKeypair);
 
       // Submit transaction
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
+      const response = await this.rpcServer.sendTransaction(
+        preparedTransaction
+      );
 
       if (response.status === 'PENDING') {
         // Wait for transaction confirmation
@@ -292,8 +294,9 @@ export class FactoryService {
         .setTimeout(30)
         .build();
 
-      const simulationResponse =
-        await this.rpcServer.simulateTransaction(builtTransaction);
+      const simulationResponse = await this.rpcServer.simulateTransaction(
+        builtTransaction
+      );
 
       if (
         rpc.Api.isSimulationSuccess(simulationResponse) &&

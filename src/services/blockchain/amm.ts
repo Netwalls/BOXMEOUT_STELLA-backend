@@ -487,7 +487,8 @@ export class AmmService extends BaseBlockchainService {
     } catch (error) {
       logger.error('AMM.add_liquidity() error', { error });
       throw new Error(
-        `Failed to add liquidity: ${error instanceof Error ? error.message : 'Unknown error'
+        `Failed to add liquidity: ${
+          error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }
@@ -573,7 +574,8 @@ export class AmmService extends BaseBlockchainService {
     } catch (error) {
       logger.error('AMM.remove_liquidity() error', { error });
       throw new Error(
-        `Failed to remove liquidity: ${error instanceof Error ? error.message : 'Unknown error'
+        `Failed to remove liquidity: ${
+          error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }

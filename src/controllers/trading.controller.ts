@@ -474,4 +474,3 @@ class TradingController {
 }
 
 export const tradingController = new TradingController();
-

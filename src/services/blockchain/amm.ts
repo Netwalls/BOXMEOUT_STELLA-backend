@@ -22,6 +22,9 @@ interface BuySharesParams {
 
 interface BuySharesResult {
   sharesReceived: number;
+  pricePerUnit: number;
+  totalCost: number;
+  feeAmount: number;
   txHash: string;
 }
 
@@ -34,12 +37,19 @@ interface SellSharesParams {
 
 interface SellSharesResult {
   payout: number;
+  pricePerUnit: number;
+  feeAmount: number;
   txHash: string;
 }
 
-interface MarketOdds {
+interface MarketOddsResult {
+  yesOdds: number;
+  noOdds: number;
   yesPercentage: number;
   noPercentage: number;
+  yesLiquidity: number;
+  noLiquidity: number;
+  totalLiquidity: number;
 }
 
 interface CreatePoolParams {
@@ -134,9 +144,13 @@ export class AmmService {
     }
 
     const sharesReceived = Number(scValToNative(txResult.returnValue));
+    const feeAmount = params.amountUsdc * 0.002; // 0.2% as per contract
 
     return {
       sharesReceived,
+      pricePerUnit: params.amountUsdc / sharesReceived,
+      totalCost: params.amountUsdc,
+      feeAmount,
       txHash: sendResponse.hash,
     };
   }
@@ -192,9 +206,17 @@ export class AmmService {
     }
 
     const payout = Number(scValToNative(txResult.returnValue));
+    // In sell_shares, payout returned is already AFTER fee.
+    // Payout = (Gross Payout) * (1 - 0.002)
+    // So Gross Payout = payout / 0.998
+    // Fee = Gross Payout - payout
+    const grossPayout = payout / 0.998;
+    const feeAmount = grossPayout - payout;
 
     return {
       payout,
+      pricePerUnit: payout / params.shares,
+      feeAmount,
       txHash: sendResponse.hash,
     };
   }
@@ -202,7 +224,7 @@ export class AmmService {
   /**
    * Get current market odds from the AMM
    */
-  async getOdds(marketId: string): Promise<MarketOdds> {
+  async getOdds(marketId: string): Promise<MarketOddsResult> {
     if (!this.ammContractId) {
       throw new Error('AMM contract address not configured');
     }
@@ -227,16 +249,28 @@ export class AmmService {
       .build();
 
     const sim = await this.rpcServer.simulateTransaction(builtTx);
-    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
-      // Default to 50/50 if simulation fails (e.g. pool doesn't exist yet but contract handles it)
-      return { yesPercentage: 50, noPercentage: 50 };
+    let yesOdds = 0.5;
+    let noOdds = 0.5;
+
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result?.retval) {
+      const odds = scValToNative(sim.result.retval) as [number, number];
+      yesOdds = odds[0] / 10000;
+      noOdds = odds[1] / 10000;
     }
 
-    const odds = scValToNative(sim.result.retval) as [number, number];
+    // Fetch pool state for liquidity info
+    const { reserves } = await this.getPoolState(marketId);
+    const yesLiquidity = Number(reserves.yes);
+    const noLiquidity = Number(reserves.no);
 
     return {
-      yesPercentage: Math.round(odds[0] / 100),
-      noPercentage: Math.round(odds[1] / 100),
+      yesOdds,
+      noOdds,
+      yesPercentage: Math.round(yesOdds * 100),
+      noPercentage: Math.round(noOdds * 100),
+      yesLiquidity,
+      noLiquidity,
+      totalLiquidity: yesLiquidity + noLiquidity,
     };
   }
 

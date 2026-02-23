@@ -200,6 +200,47 @@ export class AmmService {
   }
 
   /**
+   * Get current market odds from the AMM
+   */
+  async getOdds(marketId: string): Promise<MarketOdds> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const accountKey =
+      this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+
+    const sourceAccount = await this.rpcServer.getAccount(accountKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'get_odds',
+          nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await this.rpcServer.simulateTransaction(builtTx);
+    if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+      // Default to 50/50 if simulation fails (e.g. pool doesn't exist yet but contract handles it)
+      return { yesPercentage: 50, noPercentage: 50 };
+    }
+
+    const odds = scValToNative(sim.result.retval) as [number, number];
+
+    return {
+      yesPercentage: Math.round(odds[0] / 100),
+      noPercentage: Math.round(odds[1] / 100),
+    };
+  }
+
+  /**
    * Call AMM.create_pool(market_id, initial_liquidity)
    */
   async createPool(params: CreatePoolParams): Promise<CreatePoolResult> {

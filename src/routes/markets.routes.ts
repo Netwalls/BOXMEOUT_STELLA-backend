@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { marketsController } from '../controllers/markets.controller.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.middleware.js';
+import { requireAdmin } from '../middleware/admin.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
 import {
   createMarketBody,
@@ -49,6 +50,18 @@ router.post(
   requireAuth,
   validate({ params: uuidParam, body: createPoolBody }),
   (req, res) => marketsController.createPool(req, res)
+);
+
+/**
+ * PATCH /api/markets/:id/deactivate - Deactivate a market
+ * Requires authentication and admin privileges
+ */
+router.patch(
+  '/:id/deactivate',
+  requireAuth,
+  requireAdmin,
+  validate({ params: uuidParam }),
+  (req, res) => marketsController.deactivateMarket(req, res)
 );
 
 export default router;

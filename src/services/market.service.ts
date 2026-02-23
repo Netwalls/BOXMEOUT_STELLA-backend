@@ -362,6 +362,22 @@ export class MarketService {
     );
   }
 
+  async deactivateMarket(marketId: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) {
+      throw new Error('Market not found');
+    }
+
+    // Call blockchain factory to deactivate market on-chain
+    await factoryService.deactivateMarket(market.contractAddress);
+
+    // Update market status in the database to CANCELLED
+    return await this.marketRepository.updateMarketStatus(
+      marketId,
+      MarketStatus.CANCELLED
+    );
+  }
+
   async getTrendingMarkets(limit: number = 10) {
     return await this.marketRepository.getTrendingMarkets(limit);
   }

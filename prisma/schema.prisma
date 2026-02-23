@@ -123,7 +123,7 @@ model Market {
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   // Relations
-  creator     User         @relation("MarketCreator", fields: [creatorId], references: [id])
+  creator     User         @relation("MarketCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   predictions Prediction[]
   shares      Share[]
   trades      Trade[]
@@ -181,7 +181,7 @@ model Prediction {
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
   // Relations
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   market Market @relation(fields: [marketId], references: [id])
 
   @@unique([userId, marketId, commitmentHash])
@@ -220,7 +220,7 @@ model Share {
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   market Market @relation(fields: [marketId], references: [id])
 
   @@index([userId])
@@ -247,7 +247,7 @@ model Trade {
   updatedAt    DateTime    @updatedAt @map("updated_at")
 
   // Relations
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   market Market @relation(fields: [marketId], references: [id])
 
   @@index([userId])
@@ -407,8 +407,8 @@ model Referral {
   referredSignupAt     DateTime? @map("referred_signup_at")
 
   // Relations
-  referrer     User @relation("Referrer", fields: [referrerId], references: [id])
-  referredUser User @relation("Referred", fields: [referredUserId], references: [id])
+  referrer     User @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUser User @relation("Referred", fields: [referredUserId], references: [id], onDelete: Cascade)
 
   @@unique([referrerId, referredUserId])
   @@index([referralCode])
@@ -457,7 +457,7 @@ model Dispute {
 
   // Relations
   market Market @relation(fields: [marketId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([marketId])
   @@index([userId])
@@ -490,7 +490,7 @@ model AuditLog {
   createdAt    DateTime @default(now()) @map("created_at")
 
   // Relations
-  user User? @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([action])

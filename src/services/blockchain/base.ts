@@ -2,7 +2,7 @@
 // Base class for blockchain services providing retry logic and common configuration
 
 import { rpc, Networks, Keypair } from '@stellar/stellar-sdk';
-import { prisma } from '../database/prisma.js';
+import { prisma } from '../../database/prisma.js';
 
 export abstract class BaseBlockchainService {
   protected readonly rpcServer: rpc.Server;

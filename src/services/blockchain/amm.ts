@@ -102,7 +102,7 @@ export class AmmService extends BaseBlockchainService {
           contract.call(
             'buy_shares',
             nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
-            nativeToScVal(params.marketId, { type: 'string' }),
+            nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
             nativeToScVal(params.outcome, { type: 'u32' }),
             nativeToScVal(params.amountUsdc, { type: 'i128' }),
             nativeToScVal(params.minShares, { type: 'i128' })
@@ -188,7 +188,7 @@ export class AmmService extends BaseBlockchainService {
           contract.call(
             'sell_shares',
             nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
-            nativeToScVal(params.marketId, { type: 'string' }),
+            nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
             nativeToScVal(params.outcome, { type: 'u32' }),
             nativeToScVal(params.shares, { type: 'i128' }),
             nativeToScVal(params.minPayout, { type: 'i128' })
@@ -277,7 +277,10 @@ export class AmmService extends BaseBlockchainService {
         networkPassphrase: this.networkPassphrase,
       })
         .addOperation(
-          contract.call('get_odds', nativeToScVal(marketId, { type: 'string' }))
+          contract.call(
+            'get_odds',
+            nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
+          )
         )
         .setTimeout(30)
         .build();
@@ -292,7 +295,19 @@ export class AmmService extends BaseBlockchainService {
           throw new Error('No return value from simulation');
         }
 
-        return this.parseOddsResult(result);
+        // Fetch pool state for liquidity info
+        const { reserves } = await this.getPoolState(marketId);
+        const yesLiquidity = Number(reserves.yes);
+        const noLiquidity = Number(reserves.no);
+
+        const odds = this.parseOddsResult(result);
+
+        return {
+          ...odds,
+          yesLiquidity,
+          noLiquidity,
+          totalLiquidity: yesLiquidity + noLiquidity,
+        };
       }
 
       throw new Error('Failed to get market odds');
@@ -330,7 +345,7 @@ export class AmmService extends BaseBlockchainService {
         .addOperation(
           contract.call(
             'create_pool',
-            nativeToScVal(params.marketId, { type: 'string' }),
+            nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
             nativeToScVal(params.initialLiquidity, { type: 'i128' })
           )
         )
@@ -403,7 +418,10 @@ export class AmmService extends BaseBlockchainService {
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(
-        contract.call('get_pool', nativeToScVal(marketId, { type: 'string' }))
+        contract.call(
+          'get_pool',
+          nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
+        )
       )
       .setTimeout(30)
       .build();
@@ -492,17 +510,23 @@ export class AmmService extends BaseBlockchainService {
    */
   private parseOddsResult(returnValue: xdr.ScVal): MarketOdds {
     try {
-      // Expected return format: { yes_odds, no_odds, yes_liquidity, no_liquidity }
       const result = scValToNative(returnValue);
+      let yesOdds = 0.5;
+      let noOdds = 0.5;
+      let yesLiquidity = 0;
+      let noLiquidity = 0;
 
-      const yesOdds = Number(result.yes_odds || result.yesOdds || 0.5);
-      const noOdds = Number(result.no_odds || result.noOdds || 0.5);
-      const yesLiquidity = Number(
-        result.yes_liquidity || result.yesLiquidity || 0
-      );
-      const noLiquidity = Number(
-        result.no_liquidity || result.noLiquidity || 0
-      );
+      if (Array.isArray(result)) {
+        // Handle basis points array [yes_bp, no_bp]
+        yesOdds = Number(result[0]) / 10000;
+        noOdds = Number(result[1]) / 10000;
+      } else {
+        // Expected return format: { yes_odds, no_odds, yes_liquidity, no_liquidity }
+        yesOdds = Number(result.yes_odds || result.yesOdds || 0.5);
+        noOdds = Number(result.no_odds || result.noOdds || 0.5);
+        yesLiquidity = Number(result.yes_liquidity || result.yesLiquidity || 0);
+        noLiquidity = Number(result.no_liquidity || result.noLiquidity || 0);
+      }
 
       return {
         yesOdds,

@@ -6,14 +6,21 @@ import { executeTransaction } from '../database/transaction.js';
 import { logger } from '../utils/logger.js';
 import { factoryService } from './blockchain/factory.js';
 import { ammService } from './blockchain/amm.js';
+import { UserService } from './user.service.js';
 
 export class MarketService {
   private marketRepository: MarketRepository;
   private predictionRepository: PredictionRepository;
+  private userService: UserService;
 
-  constructor() {
-    this.marketRepository = new MarketRepository();
-    this.predictionRepository = new PredictionRepository();
+  constructor(
+    marketRepo?: MarketRepository,
+    predictionRepo?: PredictionRepository,
+    userSvc?: UserService
+  ) {
+    this.marketRepository = marketRepo || new MarketRepository();
+    this.predictionRepository = predictionRepo || new PredictionRepository();
+    this.userService = userSvc || new UserService();
   }
 
   async createPool(marketId: string, initialLiquidity: bigint) {
@@ -261,6 +268,22 @@ export class MarketService {
         await predictionRepo.settlePrediction(prediction.id, isWinner, pnlUsd);
       }
     });
+
+    // Evaluate tier promotion for all participants after settlement
+    const userIds = [...new Set(predictions.map((p) => p.userId))];
+    logger.info('Evaluating tier updates after market resolution', {
+      marketId,
+      userCount: userIds.length,
+    });
+
+    for (const userId of userIds) {
+      try {
+        await this.userService.calculateAndUpdateTier(userId);
+      } catch (error) {
+        logger.error('Failed to update tier for user', { userId, error });
+        // Don't fail the whole resolution process if one tier update fails
+      }
+    }
   }
 
   async cancelMarket(marketId: string, creatorId: string) {

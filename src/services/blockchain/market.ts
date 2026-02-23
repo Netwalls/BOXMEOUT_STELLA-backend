@@ -56,7 +56,9 @@ export class MarketBlockchainService extends BaseBlockchainService {
       if (response.status === 'PENDING') {
         const txHash = response.hash;
         // Use unified retry logic from BaseBlockchainService
-        await this.waitForTransaction(txHash, 'resolveMarket', { marketContractAddress });
+        await this.waitForTransaction(txHash, 'resolveMarket', {
+          marketContractAddress,
+        });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
@@ -110,7 +112,10 @@ export class MarketBlockchainService extends BaseBlockchainService {
       if (response.status === 'PENDING') {
         const txHash = response.hash;
         // Use unified retry logic from BaseBlockchainService
-        await this.waitForTransaction(txHash, 'claimWinnings', { marketContractAddress, userPublicKey });
+        await this.waitForTransaction(txHash, 'claimWinnings', {
+          marketContractAddress,
+          userPublicKey,
+        });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);

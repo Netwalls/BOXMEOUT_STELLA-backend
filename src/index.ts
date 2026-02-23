@@ -11,7 +11,6 @@ import oracleRoutes from './routes/oracle.js';
 import predictionRoutes from './routes/predictions.js';
 import tradingRoutes from './routes/trading.js';
 import treasuryRoutes from './routes/treasury.routes.js';
-import tradingRoutes from './routes/trading.js';
 
 // Import Redis initialization
 import {
@@ -203,9 +202,6 @@ app.use('/api/markets', predictionRoutes);
 app.use('/api/markets', tradingRoutes);
 // Treasury routes
 app.use('/api/treasury', treasuryRoutes);
-
-// Trading routes
-app.use('/api/markets', tradingRoutes);
 
 // TODO: Add other routes as they are implemented
 // app.use('/api/users', userRoutes);

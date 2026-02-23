@@ -77,7 +77,10 @@ export class OracleService extends BaseBlockchainService {
       if (response.status === 'PENDING') {
         const txHash = response.hash;
         // Use unified retry logic from BaseBlockchainService
-        await this.waitForTransaction(txHash, 'submitAttestation', { marketId, outcome });
+        await this.waitForTransaction(txHash, 'submitAttestation', {
+          marketId,
+          outcome,
+        });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
@@ -115,7 +118,9 @@ export class OracleService extends BaseBlockchainService {
         logger.warn(
           'Could not load source account for checkConsensus simulation, using random keypair fallback'
         );
-        sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+        sourceAccount = await this.rpcServer.getAccount(
+          Keypair.random().publicKey()
+        );
       }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {

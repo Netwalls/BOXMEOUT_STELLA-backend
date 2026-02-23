@@ -92,7 +92,11 @@ export class FactoryService extends BaseBlockchainService {
       if (response.status === 'PENDING') {
         const txHash = response.hash;
         // Use unified retry logic from BaseBlockchainService
-        const result = await this.waitForTransaction(txHash, 'createMarket', params);
+        const result = await this.waitForTransaction(
+          txHash,
+          'createMarket',
+          params
+        );
 
         if (result.status === 'SUCCESS') {
           const returnValue = result.returnValue;
@@ -167,7 +171,9 @@ export class FactoryService extends BaseBlockchainService {
         logger.warn(
           'Could not load source account for getMarketCount simulation, using random keypair fallback'
         );
-        sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+        sourceAccount = await this.rpcServer.getAccount(
+          Keypair.random().publicKey()
+        );
       }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {

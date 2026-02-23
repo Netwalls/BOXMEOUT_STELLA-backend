@@ -125,7 +125,11 @@ export class AmmService extends BaseBlockchainService {
       if (response.status === 'PENDING') {
         const txHash = response.hash;
         // Use unified retry logic from BaseBlockchainService
-        const result = await this.waitForTransaction(txHash, 'buyShares', params);
+        const result = await this.waitForTransaction(
+          txHash,
+          'buyShares',
+          params
+        );
 
         if (result.status === 'SUCCESS') {
           // Extract result from contract return value
@@ -207,7 +211,11 @@ export class AmmService extends BaseBlockchainService {
       if (response.status === 'PENDING') {
         const txHash = response.hash;
         // Use unified retry logic from BaseBlockchainService
-        const result = await this.waitForTransaction(txHash, 'sellShares', params);
+        const result = await this.waitForTransaction(
+          txHash,
+          'sellShares',
+          params
+        );
 
         if (result.status === 'SUCCESS') {
           // Extract result from contract return value
@@ -259,7 +267,9 @@ export class AmmService extends BaseBlockchainService {
         logger.warn(
           'Could not load source account for getOdds simulation, using random keypair fallback'
         );
-        sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+        sourceAccount = await this.rpcServer.getAccount(
+          Keypair.random().publicKey()
+        );
       }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -302,12 +312,16 @@ export class AmmService extends BaseBlockchainService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
     }
 
     try {
       const contract = new Contract(this.ammContractId);
-      const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
       const builtTx = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -330,7 +344,11 @@ export class AmmService extends BaseBlockchainService {
 
       if (sendResponse.status === 'PENDING') {
         const txHash = sendResponse.hash;
-        const result = await this.waitForTransaction(txHash, 'createPool', params);
+        const result = await this.waitForTransaction(
+          txHash,
+          'createPool',
+          params
+        );
 
         if (result.status === 'SUCCESS') {
           const { reserves, odds } = await this.getPoolState(params.marketId);
@@ -344,7 +362,9 @@ export class AmmService extends BaseBlockchainService {
           throw new Error(`Transaction failed: ${result.status}`);
         }
       } else {
-        throw new Error(`Transaction submission failed: ${sendResponse.status}`);
+        throw new Error(
+          `Transaction submission failed: ${sendResponse.status}`
+        );
       }
     } catch (error) {
       logger.error('AMM.create_pool() error', { error });
@@ -373,7 +393,9 @@ export class AmmService extends BaseBlockchainService {
       logger.warn(
         'Could not load source account for getPoolState simulation, using random keypair fallback'
       );
-      sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+      sourceAccount = await this.rpcServer.getAccount(
+        Keypair.random().publicKey()
+      );
     }
 
     const builtTx = new TransactionBuilder(sourceAccount, {
@@ -381,10 +403,7 @@ export class AmmService extends BaseBlockchainService {
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(
-        contract.call(
-          'get_pool',
-          nativeToScVal(marketId, { type: 'string' })
-        )
+        contract.call('get_pool', nativeToScVal(marketId, { type: 'string' }))
       )
       .setTimeout(30)
       .build();

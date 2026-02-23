@@ -43,7 +43,8 @@ export abstract class BaseBlockchainService {
         }
         this.adminKeypair = Keypair.random();
       } else {
-        if (!adminSecret) logger.warn(`${serviceName}: ADMIN_WALLET_SECRET not configured`);
+        if (!adminSecret)
+          logger.warn(`${serviceName}: ADMIN_WALLET_SECRET not configured`);
       }
     }
   }
@@ -78,13 +79,12 @@ export abstract class BaseBlockchainService {
 
         // NOT_FOUND or other non-final status, wait and retry
         await this.sleep(backoffSeconds * 1000);
-        
+
         // Exponential backoff capped at 8s (1, 2, 4, 8, 8...)
         if (backoffSeconds < 8) {
           backoffSeconds *= 2;
         }
         pollingRetries++;
-
       } catch (error: any) {
         // If it's a known blockchain failure, don't retry network count
         if (error.message === 'Transaction failed on blockchain') {
@@ -93,7 +93,10 @@ export abstract class BaseBlockchainService {
 
         // Handle network/RPC errors with separate retry count
         networkRetries++;
-        console.warn(`Network error in waitForTransaction (${this.serviceName}.${functionName}), retry ${networkRetries}/${maxNetworkRetries}:`, error.message);
+        console.warn(
+          `Network error in waitForTransaction (${this.serviceName}.${functionName}), retry ${networkRetries}/${maxNetworkRetries}:`,
+          error.message
+        );
 
         if (networkRetries >= maxNetworkRetries) {
           const errorMsg = `Max network retries reached: ${error.message}`;
@@ -121,8 +124,10 @@ export abstract class BaseBlockchainService {
     error: string
   ): Promise<void> {
     try {
-      console.error(`Logging failed transaction to DLQ: ${txHash} (${this.serviceName}.${functionName}) - Error: ${error}`);
-      
+      console.error(
+        `Logging failed transaction to DLQ: ${txHash} (${this.serviceName}.${functionName}) - Error: ${error}`
+      );
+
       await prisma.blockchainDeadLetterQueue.upsert({
         where: { txHash },
         update: {
@@ -142,7 +147,6 @@ export abstract class BaseBlockchainService {
 
       // Trigger alerts here (integration with monitoring service)
       this.triggerAlert(txHash, error);
-
     } catch (dlqError) {
       console.error('Failed to log to DLQ:', dlqError);
     }
@@ -153,7 +157,9 @@ export abstract class BaseBlockchainService {
    */
   private triggerAlert(txHash: string, error: string): void {
     // Placeholder for actual monitoring integration (e.g. Sentry, Datadog, Slack)
-    console.error(`[ALERT] Blockchain transaction failed permanently: ${txHash}. Error: ${error}`);
+    console.error(
+      `[ALERT] Blockchain transaction failed permanently: ${txHash}. Error: ${error}`
+    );
   }
 
   /**

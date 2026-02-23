@@ -142,6 +142,64 @@ export class AmmService {
   }
 
   /**
+   * Sell outcome shares to the AMM
+   */
+  async sellShares(params: SellSharesParams): Promise<SellSharesResult> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'sell_shares',
+          nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.shares, { type: 'i128' }),
+          nativeToScVal(params.minPayout, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    prepared.sign(this.adminKeypair);
+
+    const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+    if (sendResponse.status !== 'PENDING') {
+      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
+    }
+
+    const txResult = await this.waitForTransaction(sendResponse.hash);
+
+    if (txResult.status !== 'SUCCESS') {
+      throw new Error('Transaction execution failed');
+    }
+
+    const payout = Number(scValToNative(txResult.returnValue));
+
+    return {
+      payout,
+      txHash: sendResponse.hash,
+    };
+  }
+
+  /**
    * Call AMM.create_pool(market_id, initial_liquidity)
    */
   async createPool(params: CreatePoolParams): Promise<CreatePoolResult> {

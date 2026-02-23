@@ -78,7 +78,7 @@ model Notification {
   updatedAt DateTime         @updatedAt @map("updated_at")
 
   // Relations
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([type])
@@ -292,7 +292,7 @@ model Transaction {
   updatedAt    DateTime          @updatedAt @map("updated_at")
 
   // Relations
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([txType])
@@ -333,7 +333,7 @@ model Leaderboard {
   updatedAt        DateTime   @updatedAt @map("updated_at")
 
   // Relations
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([globalRank])
   @@index([weeklyRank])
@@ -358,7 +358,7 @@ model CategoryLeaderboard {
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   // Relations
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, category])
   @@index([category, rank])
@@ -376,7 +376,7 @@ model Achievement {
   badgeUrl        String          @map("badge_url")
 
   // Relations
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, achievementName])
   @@index([userId])
@@ -431,7 +431,7 @@ model RefreshToken {
   isValid   Boolean   @default(true) @map("is_valid")
 
   // Relations
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([tokenHash])

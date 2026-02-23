@@ -43,11 +43,11 @@ interface SellSharesResult {
   txHash: string;
 }
 
-interface MarketOdds {
-  yesOdds: number; // e.g., 0.65 (65%)
-  noOdds: number; // e.g., 0.35 (35%)
-  yesPercentage: number; // e.g., 65
-  noPercentage: number; // e.g., 35
+interface MarketOddsResult {
+  yesOdds: number;
+  noOdds: number;
+  yesPercentage: number;
+  noPercentage: number;
   yesLiquidity: number;
   noLiquidity: number;
   totalLiquidity: number;
@@ -111,8 +111,6 @@ export class AmmService {
 
   /**
    * Buy outcome shares from the AMM
-   * @param params - Buy parameters
-   * @returns Shares received and transaction details
    */
   async buyShares(params: BuySharesParams): Promise<BuySharesResult> {
     if (!this.ammContractId) {
@@ -124,75 +122,57 @@ export class AmmService {
       );
     }
 
-    try {
-      const contract = new Contract(this.ammContractId);
-      const sourceAccount = await this.rpcServer.getAccount(
-        this.adminKeypair.publicKey()
-      );
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
 
-      // Build the contract call operation
-      const builtTransaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(
-          contract.call(
-            'buy_shares',
-            nativeToScVal(params.marketId, { type: 'string' }),
-            nativeToScVal(params.outcome, { type: 'u32' }),
-            nativeToScVal(params.amountUsdc, { type: 'i128' }),
-            nativeToScVal(params.minShares, { type: 'i128' })
-          )
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'buy_shares',
+          nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.amountUsdc, { type: 'i128' }),
+          nativeToScVal(params.minShares, { type: 'i128' })
         )
-        .setTimeout(30)
-        .build();
+      )
+      .setTimeout(30)
+      .build();
 
-      // Prepare transaction for the network
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    prepared.sign(this.adminKeypair);
 
-      // Sign transaction
-      preparedTransaction.sign(this.adminKeypair);
+    const sendResponse = await this.rpcServer.sendTransaction(prepared);
 
-      // Submit transaction
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
-
-      if (response.status === 'PENDING') {
-        const txHash = response.hash;
-        const result = await this.waitForTransaction(txHash);
-
-        if (result.status === 'SUCCESS') {
-          // Extract result from contract return value
-          const returnValue = result.returnValue;
-          const buyResult = this.parseBuySharesResult(returnValue);
-
-          return {
-            ...buyResult,
-            txHash,
-          };
-        } else {
-          throw new Error(`Transaction failed: ${result.status}`);
-        }
-      } else if (response.status === 'ERROR') {
-        throw new Error(
-          `Transaction submission error: ${response.errorResult}`
-        );
-      } else {
-        throw new Error(`Unexpected response status: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('AMM.buy_shares() error:', error);
-      throw new Error(
-        `Failed to buy shares: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    if (sendResponse.status !== 'PENDING') {
+      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
+
+    const txResult = await this.waitForTransaction(sendResponse.hash);
+
+    if (txResult.status !== 'SUCCESS') {
+      throw new Error('Transaction execution failed');
+    }
+
+    const sharesReceived = Number(scValToNative(txResult.returnValue));
+    const feeAmount = params.amountUsdc * 0.002; // 0.2% as per contract
+
+    return {
+      sharesReceived,
+      pricePerUnit: params.amountUsdc / sharesReceived,
+      totalCost: params.amountUsdc,
+      feeAmount,
+      txHash: sendResponse.hash,
+    };
   }
 
   /**
    * Sell outcome shares to the AMM
-   * @param params - Sell parameters
-   * @returns Payout received and transaction details
    */
   async sellShares(params: SellSharesParams): Promise<SellSharesResult> {
     if (!this.ammContractId) {
@@ -204,133 +184,110 @@ export class AmmService {
       );
     }
 
-    try {
-      const contract = new Contract(this.ammContractId);
-      const sourceAccount = await this.rpcServer.getAccount(
-        this.adminKeypair.publicKey()
-      );
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
 
-      // Build the contract call operation
-      const builtTransaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(
-          contract.call(
-            'sell_shares',
-            nativeToScVal(params.marketId, { type: 'string' }),
-            nativeToScVal(params.outcome, { type: 'u32' }),
-            nativeToScVal(params.shares, { type: 'i128' }),
-            nativeToScVal(params.minPayout, { type: 'i128' })
-          )
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'sell_shares',
+          nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.shares, { type: 'i128' }),
+          nativeToScVal(params.minPayout, { type: 'i128' })
         )
-        .setTimeout(30)
-        .build();
+      )
+      .setTimeout(30)
+      .build();
 
-      // Prepare transaction for the network
-      const preparedTransaction =
-        await this.rpcServer.prepareTransaction(builtTransaction);
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    prepared.sign(this.adminKeypair);
 
-      // Sign transaction
-      preparedTransaction.sign(this.adminKeypair);
+    const sendResponse = await this.rpcServer.sendTransaction(prepared);
 
-      // Submit transaction
-      const response =
-        await this.rpcServer.sendTransaction(preparedTransaction);
-
-      if (response.status === 'PENDING') {
-        const txHash = response.hash;
-        const result = await this.waitForTransaction(txHash);
-
-        if (result.status === 'SUCCESS') {
-          // Extract result from contract return value
-          const returnValue = result.returnValue;
-          const sellResult = this.parseSellSharesResult(returnValue);
-
-          return {
-            ...sellResult,
-            txHash,
-          };
-        } else {
-          throw new Error(`Transaction failed: ${result.status}`);
-        }
-      } else if (response.status === 'ERROR') {
-        throw new Error(
-          `Transaction submission error: ${response.errorResult}`
-        );
-      } else {
-        throw new Error(`Unexpected response status: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('AMM.sell_shares() error:', error);
-      throw new Error(
-        `Failed to sell shares: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    if (sendResponse.status !== 'PENDING') {
+      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
+
+    const txResult = await this.waitForTransaction(sendResponse.hash);
+
+    if (txResult.status !== 'SUCCESS') {
+      throw new Error('Transaction execution failed');
+    }
+
+    const payout = Number(scValToNative(txResult.returnValue));
+    // In sell_shares, payout returned is already AFTER fee.
+    // Payout = (Gross Payout) * (1 - 0.002)
+    // So Gross Payout = payout / 0.998
+    // Fee = Gross Payout - payout
+    const grossPayout = payout / 0.998;
+    const feeAmount = grossPayout - payout;
+
+    return {
+      payout,
+      pricePerUnit: payout / params.shares,
+      feeAmount,
+      txHash: sendResponse.hash,
+    };
   }
 
   /**
    * Get current market odds from the AMM
-   * @param marketId - Market ID
-   * @returns Market odds and liquidity information
    */
-  async getOdds(marketId: string): Promise<MarketOdds> {
+  async getOdds(marketId: string): Promise<MarketOddsResult> {
     if (!this.ammContractId) {
       throw new Error('AMM contract address not configured');
     }
 
-    try {
-      const contract = new Contract(this.ammContractId);
-      // For read-only calls, any source account works.
-      // If adminKeypair is available, use it. Else random.
-      const accountKey =
-        this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+    const contract = new Contract(this.ammContractId);
+    const accountKey =
+      this.adminKeypair?.publicKey() || Keypair.random().publicKey();
 
-      let sourceAccount;
-      try {
-        sourceAccount = await this.rpcServer.getAccount(accountKey);
-      } catch (e) {
-        // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account
-        // but simulateTransaction usually requires a valid sequence number.
-        // If in dev and "random" key was generated in constructor, it won't be on chain unless funded.
-        // This might be tricky. Let's assume if it fails we can't simulate easily.
-        console.warn(
-          'Could not load source account for getOdds simulation:',
-          e
-        );
-        throw e;
-      }
+    const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
-      const builtTransaction = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(
-          contract.call('get_odds', nativeToScVal(marketId, { type: 'string' }))
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'get_odds',
+          nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
         )
-        .setTimeout(30)
-        .build();
+      )
+      .setTimeout(30)
+      .build();
 
-      // Simulate transaction to get result without submitting
-      const simulationResponse =
-        await this.rpcServer.simulateTransaction(builtTransaction);
+    const sim = await this.rpcServer.simulateTransaction(builtTx);
+    let yesOdds = 0.5;
+    let noOdds = 0.5;
 
-      if (rpc.Api.isSimulationSuccess(simulationResponse)) {
-        const result = simulationResponse.result?.retval;
-        if (!result) {
-          throw new Error('No return value from simulation');
-        }
-
-        return this.parseOddsResult(result);
-      }
-
-      throw new Error('Failed to get market odds');
-    } catch (error) {
-      console.error('Error getting market odds:', error);
-      throw new Error(
-        `Failed to get odds: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result?.retval) {
+      const odds = scValToNative(sim.result.retval) as [number, number];
+      yesOdds = odds[0] / 10000;
+      noOdds = odds[1] / 10000;
     }
+
+    // Fetch pool state for liquidity info
+    const { reserves } = await this.getPoolState(marketId);
+    const yesLiquidity = Number(reserves.yes);
+    const noLiquidity = Number(reserves.no);
+
+    return {
+      yesOdds,
+      noOdds,
+      yesPercentage: Math.round(yesOdds * 100),
+      noPercentage: Math.round(noOdds * 100),
+      yesLiquidity,
+      noLiquidity,
+      totalLiquidity: yesLiquidity + noLiquidity,
+    };
   }
 
   /**
@@ -490,97 +447,6 @@ export class AmmService {
     }
 
     throw new Error('Transaction confirmation timeout');
-  }
-
-  /**
-   * Parse buy_shares contract return value
-   * @param returnValue - Contract return value
-   * @returns Parsed buy result
-   */
-  private parseBuySharesResult(
-    returnValue: xdr.ScVal | undefined
-  ): Omit<BuySharesResult, 'txHash'> {
-    if (!returnValue) {
-      throw new Error('No return value from contract');
-    }
-
-    try {
-      // Expected return format: { shares_received, price_per_unit, total_cost, fee_amount }
-      const result = scValToNative(returnValue);
-
-      return {
-        sharesReceived: Number(
-          result.shares_received || result.sharesReceived || 0
-        ),
-        pricePerUnit: Number(result.price_per_unit || result.pricePerUnit || 0),
-        totalCost: Number(result.total_cost || result.totalCost || 0),
-        feeAmount: Number(result.fee_amount || result.feeAmount || 0),
-      };
-    } catch (error) {
-      console.error('Error parsing buy shares result:', error);
-      throw new Error('Failed to parse contract response');
-    }
-  }
-
-  /**
-   * Parse sell_shares contract return value
-   * @param returnValue - Contract return value
-   * @returns Parsed sell result
-   */
-  private parseSellSharesResult(
-    returnValue: xdr.ScVal | undefined
-  ): Omit<SellSharesResult, 'txHash'> {
-    if (!returnValue) {
-      throw new Error('No return value from contract');
-    }
-
-    try {
-      // Expected return format: { payout, price_per_unit, fee_amount }
-      const result = scValToNative(returnValue);
-
-      return {
-        payout: Number(result.payout || 0),
-        pricePerUnit: Number(result.price_per_unit || result.pricePerUnit || 0),
-        feeAmount: Number(result.fee_amount || result.feeAmount || 0),
-      };
-    } catch (error) {
-      console.error('Error parsing sell shares result:', error);
-      throw new Error('Failed to parse contract response');
-    }
-  }
-
-  /**
-   * Parse get_odds contract return value
-   * @param returnValue - Contract return value
-   * @returns Market odds
-   */
-  private parseOddsResult(returnValue: xdr.ScVal): MarketOdds {
-    try {
-      // Expected return format: { yes_odds, no_odds, yes_liquidity, no_liquidity }
-      const result = scValToNative(returnValue);
-
-      const yesOdds = Number(result.yes_odds || result.yesOdds || 0.5);
-      const noOdds = Number(result.no_odds || result.noOdds || 0.5);
-      const yesLiquidity = Number(
-        result.yes_liquidity || result.yesLiquidity || 0
-      );
-      const noLiquidity = Number(
-        result.no_liquidity || result.noLiquidity || 0
-      );
-
-      return {
-        yesOdds,
-        noOdds,
-        yesPercentage: Math.round(yesOdds * 100),
-        noPercentage: Math.round(noOdds * 100),
-        yesLiquidity,
-        noLiquidity,
-        totalLiquidity: yesLiquidity + noLiquidity,
-      };
-    } catch (error) {
-      console.error('Error parsing odds result:', error);
-      throw new Error('Failed to parse odds response');
-    }
   }
 
   private sleep(ms: number): Promise<void> {

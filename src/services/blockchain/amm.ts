@@ -102,7 +102,9 @@ export class AmmService extends BaseBlockchainService {
           contract.call(
             'buy_shares',
             nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
-            nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
             nativeToScVal(params.outcome, { type: 'u32' }),
             nativeToScVal(params.amountUsdc, { type: 'i128' }),
             nativeToScVal(params.minShares, { type: 'i128' })
@@ -188,7 +190,9 @@ export class AmmService extends BaseBlockchainService {
           contract.call(
             'sell_shares',
             nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
-            nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
             nativeToScVal(params.outcome, { type: 'u32' }),
             nativeToScVal(params.shares, { type: 'i128' }),
             nativeToScVal(params.minPayout, { type: 'i128' })
@@ -345,7 +349,9 @@ export class AmmService extends BaseBlockchainService {
         .addOperation(
           contract.call(
             'create_pool',
-            nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
             nativeToScVal(params.initialLiquidity, { type: 'i128' })
           )
         )

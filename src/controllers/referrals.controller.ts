@@ -9,7 +9,9 @@ export class ReferralsController {
       // @ts-ignore
       const userId = req.user?.userId as string;
       if (!userId) {
-        res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
+        res
+          .status(401)
+          .json({ success: false, error: { message: 'Not authenticated' } });
         return;
       }
 
@@ -17,7 +19,9 @@ export class ReferralsController {
       res.status(200).json({ success: true, data: info });
     } catch (error) {
       (req.log || logger).error('Get referral info error', { error });
-      res.status(500).json({ success: false, error: { message: (error as Error).message } });
+      res
+        .status(500)
+        .json({ success: false, error: { message: (error as Error).message } });
     }
   }
 
@@ -25,22 +29,32 @@ export class ReferralsController {
     try {
       const { referralCode } = req.body;
       if (!referralCode) {
-        res.status(400).json({ success: false, error: { message: 'referralCode required' } });
+        res.status(400).json({
+          success: false,
+          error: { message: 'referralCode required' },
+        });
         return;
       }
 
       // @ts-ignore
       const referredUserId = req.user?.userId as string;
       if (!referredUserId) {
-        res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
+        res
+          .status(401)
+          .json({ success: false, error: { message: 'Not authenticated' } });
         return;
       }
 
-      const result = await referralService.claimReferral(referralCode, referredUserId);
+      const result = await referralService.claimReferral(
+        referralCode,
+        referredUserId
+      );
       res.status(200).json({ success: true, data: result });
     } catch (error) {
       (req.log || logger).error('Claim referral error', { error });
-      res.status(400).json({ success: false, error: { message: (error as Error).message } });
+      res
+        .status(400)
+        .json({ success: false, error: { message: (error as Error).message } });
     }
   }
 }

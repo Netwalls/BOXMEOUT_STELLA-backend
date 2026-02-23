@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import { prisma } from '../database/prisma.js';
 
-const HMAC_SECRET = process.env.REFERRAL_HMAC_SECRET || 'default_referral_secret';
+const HMAC_SECRET =
+  process.env.REFERRAL_HMAC_SECRET || 'default_referral_secret';
 const SIGNUP_BONUS = parseFloat(process.env.REFERRAL_SIGNUP_BONUS_USDC || '5');
 const REFERRER_BONUS = parseFloat(process.env.REFERRER_BONUS_USDC || '10');
 
@@ -33,7 +34,7 @@ export class ReferralService {
       const idBuf = Buffer.from(idPart, 'base64url');
       const hex = idBuf.toString('hex');
       // Reinsert dashes to match UUID format
-      const uuid = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+      const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
       return uuid;
     } catch {
       return null;
@@ -42,7 +43,9 @@ export class ReferralService {
 
   async getReferralInfo(userId: string) {
     const code = this.generateReferralCode(userId);
-    const referralsCount = await prisma.referral.count({ where: { referrerId: userId } });
+    const referralsCount = await prisma.referral.count({
+      where: { referrerId: userId },
+    });
     const totalEarned = referralsCount * REFERRER_BONUS;
 
     return {
@@ -109,7 +112,13 @@ export class ReferralService {
       return { referral, referrerUser, referredUser };
     });
 
-    return { alreadyExists: false, awarded: true, signupBonus: SIGNUP_BONUS, referrerBonus: REFERRER_BONUS, result };
+    return {
+      alreadyExists: false,
+      awarded: true,
+      signupBonus: SIGNUP_BONUS,
+      referrerBonus: REFERRER_BONUS,
+      result,
+    };
   }
 }
 

@@ -50,17 +50,31 @@ describe('Market Lifecycle E2E', () => {
   });
 
   afterAll(async () => {
-    await prisma.trade.deleteMany({ where: { userId: testUser.id } });
-    await prisma.prediction.deleteMany({ where: { userId: testUser.id } });
-    await prisma.share.deleteMany({ where: { userId: testUser.id } });
-    await prisma.leaderboard.deleteMany({ where: { userId: testUser.id } });
-    await prisma.categoryLeaderboard.deleteMany({
-      where: { userId: testUser.id },
-    });
-    if (testMarket) {
-      await prisma.market.delete({ where: { id: testMarket.id } });
+    if (testUser) {
+      await prisma.trade
+        .deleteMany({ where: { userId: testUser.id } })
+        .catch(() => {});
+      await prisma.prediction
+        .deleteMany({ where: { userId: testUser.id } })
+        .catch(() => {});
+      await prisma.share
+        .deleteMany({ where: { userId: testUser.id } })
+        .catch(() => {});
+      await prisma.leaderboard
+        .deleteMany({ where: { userId: testUser.id } })
+        .catch(() => {});
+      await prisma.categoryLeaderboard
+        .deleteMany({ where: { userId: testUser.id } })
+        .catch(() => {});
     }
-    await prisma.user.delete({ where: { id: testUser.id } });
+    if (testMarket) {
+      await prisma.market
+        .delete({ where: { id: testMarket.id } })
+        .catch(() => {});
+    }
+    if (testUser) {
+      await prisma.user.delete({ where: { id: testUser.id } }).catch(() => {});
+    }
     await prisma.$disconnect();
   });
 

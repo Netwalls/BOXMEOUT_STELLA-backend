@@ -5,45 +5,24 @@ import {
   Contract,
   rpc,
   TransactionBuilder,
-  Networks,
   BASE_FEE,
   Keypair,
   nativeToScVal,
   scValToNative,
 } from '@stellar/stellar-sdk';
+import { BaseBlockchainService } from './base.js';
 import { logger } from '../../utils/logger.js';
 
 export interface AttestationResult {
   txHash: string;
 }
 
-export class OracleService {
-  private rpcServer: rpc.Server;
+export class OracleService extends BaseBlockchainService {
   private oracleContractId: string;
-  private networkPassphrase: string;
-  private adminKeypair?: Keypair;
 
   constructor() {
-    const rpcUrl =
-      process.env.STELLAR_SOROBAN_RPC_URL ||
-      'https://soroban-testnet.stellar.org';
-    const network = process.env.STELLAR_NETWORK || 'testnet';
-
-    this.rpcServer = new rpc.Server(rpcUrl, {
-      allowHttp: rpcUrl.includes('localhost'),
-    });
+    super('OracleService');
     this.oracleContractId = process.env.ORACLE_CONTRACT_ADDRESS || '';
-    this.networkPassphrase =
-      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-
-    const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (adminSecret) {
-      try {
-        this.adminKeypair = Keypair.fromSecret(adminSecret);
-      } catch (error) {
-        logger.warn('Invalid ADMIN_WALLET_SECRET for Oracle service');
-      }
-    }
   }
 
   /**
@@ -97,7 +76,11 @@ export class OracleService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
-        await this.waitForTransaction(txHash);
+        // Use unified retry logic from BaseBlockchainService
+        await this.waitForTransaction(txHash, 'submitAttestation', {
+          marketId,
+          outcome,
+        });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
@@ -127,7 +110,18 @@ export class OracleService {
       const marketIdBuffer = Buffer.from(marketId, 'hex');
       const accountKey =
         this.adminKeypair?.publicKey() || Keypair.random().publicKey();
-      const sourceAccount = await this.rpcServer.getAccount(accountKey);
+
+      let sourceAccount;
+      try {
+        sourceAccount = await this.rpcServer.getAccount(accountKey);
+      } catch (e) {
+        logger.warn(
+          'Could not load source account for checkConsensus simulation, using random keypair fallback'
+        );
+        sourceAccount = await this.rpcServer.getAccount(
+          Keypair.random().publicKey()
+        );
+      }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -157,28 +151,6 @@ export class OracleService {
       logger.error('Error checking consensus', { error });
       return null;
     }
-  }
-
-  private async waitForTransaction(
-    txHash: string,
-    maxRetries: number = 10
-  ): Promise<any> {
-    let retries = 0;
-    while (retries < maxRetries) {
-      try {
-        const txResponse = await this.rpcServer.getTransaction(txHash);
-        if (txResponse.status === 'SUCCESS') return txResponse;
-        if (txResponse.status === 'FAILED')
-          throw new Error('Transaction failed');
-        await new Promise((r) => setTimeout(r, 2000));
-        retries++;
-      } catch (error) {
-        if (retries >= maxRetries - 1) throw error;
-        await new Promise((r) => setTimeout(r, 2000));
-        retries++;
-      }
-    }
-    throw new Error('Transaction timeout');
   }
 }
 

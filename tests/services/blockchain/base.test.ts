@@ -23,6 +23,9 @@ vi.mock('@stellar/stellar-sdk', () => ({
   },
   Keypair: {
     fromSecret: vi.fn(),
+    random: vi.fn().mockReturnValue({
+      publicKey: vi.fn().mockReturnValue('GDUMMY...'),
+    }),
   },
 }));
 

@@ -94,4 +94,50 @@ router.get('/:marketId/odds', (req, res) =>
   tradingController.getOdds(req, res)
 );
 
+/**
+ * POST /api/markets/:marketId/liquidity/add - Add USDC Liquidity to Pool
+ * Requires authentication
+ *
+ * Request Body:
+ * {
+ *   usdcAmount: string  // Amount of USDC to deposit (integer string)
+ * }
+ *
+ * Response:
+ * {
+ *   success: true,
+ *   data: {
+ *     lpTokensMinted: string,
+ *     txHash: string
+ *   }
+ * }
+ */
+router.post('/:marketId/liquidity/add', requireAuth, (req, res) =>
+  tradingController.addLiquidity(req, res)
+);
+
+/**
+ * POST /api/markets/:marketId/liquidity/remove - Remove Liquidity from Pool
+ * Requires authentication
+ *
+ * Request Body:
+ * {
+ *   lpTokens: string  // LP tokens to redeem (integer string)
+ * }
+ *
+ * Response:
+ * {
+ *   success: true,
+ *   data: {
+ *     yesAmount: string,
+ *     noAmount: string,
+ *     totalUsdcReturned: string,
+ *     txHash: string
+ *   }
+ * }
+ */
+router.post('/:marketId/liquidity/remove', requireAuth, (req, res) =>
+  tradingController.removeLiquidity(req, res)
+);
+
 export default router;

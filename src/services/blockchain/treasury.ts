@@ -9,6 +9,7 @@ import {
   scValToNative,
   Address,
 } from '@stellar/stellar-sdk';
+import { logger } from '../../utils/logger.js';
 
 export interface TreasuryBalances {
   totalBalance: string;
@@ -47,7 +48,7 @@ export class TreasuryService {
       try {
         this.adminKeypair = Keypair.fromSecret(adminSecret);
       } catch (error) {
-        console.warn('Invalid ADMIN_WALLET_SECRET for Treasury service');
+        logger.warn('Invalid ADMIN_WALLET_SECRET for Treasury service');
       }
     }
   }
@@ -87,7 +88,9 @@ export class TreasuryService {
       };
     } catch (error) {
       throw new Error(
-        `Treasury balance fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Treasury balance fetch failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -150,7 +153,9 @@ export class TreasuryService {
       throw new Error('Transaction submission failed');
     } catch (error) {
       throw new Error(
-        `Leaderboard distribution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Leaderboard distribution failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -210,7 +215,9 @@ export class TreasuryService {
       throw new Error('Transaction submission failed');
     } catch (error) {
       throw new Error(
-        `Creator distribution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Creator distribution failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }

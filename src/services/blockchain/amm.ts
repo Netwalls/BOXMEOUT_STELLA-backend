@@ -1,5 +1,13 @@
 // backend/src/services/blockchain/amm.ts
 // AMM contract interaction service
+//
+// SECURITY MODEL:
+//   Admin key  → createPool, getPoolState (protocol operations)
+//   User key   → buy_shares, sell_shares, add_liquidity, remove_liquidity
+//
+// For user operations the backend NEVER signs. Instead:
+//   1. buildXxxTx()     → returns unsigned base64 XDR for the frontend to sign
+//   2. submitSignedTx() → validates signature, then submits to Soroban
 
 import {
   Contract,
@@ -11,6 +19,9 @@ import {
   nativeToScVal,
   scValToNative,
 } from '@stellar/stellar-sdk';
+import { userSignedTxService, SubmitResult } from './user-tx.service.js';
+
+// ─── Param/result interfaces ──────────────────────────────────────────────────
 
 interface CreatePoolParams {
   marketId: string; // hex string (BytesN<32>)
@@ -23,11 +34,37 @@ interface CreatePoolResult {
   odds: { yes: number; no: number };
 }
 
+export interface BuySharesTxParams {
+  marketId: string;
+  outcome: number; // 0 = NO, 1 = YES
+  amountUsdc: bigint;
+  minShares: bigint;
+}
+
+export interface SellSharesTxParams {
+  marketId: string;
+  outcome: number; // 0 = NO, 1 = YES
+  shares: bigint;
+  minPayout: bigint;
+}
+
+export interface AddLiquidityTxParams {
+  marketId: string;
+  usdcAmount: bigint;
+}
+
+export interface RemoveLiquidityTxParams {
+  marketId: string;
+  lpTokens: bigint;
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
+
 export class AmmService {
   private readonly rpcServer: rpc.Server;
   private readonly ammContractId: string;
   private readonly networkPassphrase: string;
-  private readonly adminKeypair?: Keypair; // Optional - only needed for write operations
+  private readonly adminKeypair?: Keypair;
 
   constructor() {
     const rpcUrl =
@@ -42,25 +79,25 @@ export class AmmService {
     this.networkPassphrase =
       network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 
-    // Admin keypair is optional - only needed for contract write operations
     const adminSecret = process.env.ADMIN_WALLET_SECRET;
     if (adminSecret) {
       try {
         this.adminKeypair = Keypair.fromSecret(adminSecret);
-      } catch (error) {
+      } catch {
         console.warn('Invalid ADMIN_WALLET_SECRET for AMM service');
       }
     }
   }
 
+  // ── Admin-only: create pool ────────────────────────────────────────────────
+
   /**
-   * Call AMM.create_pool(market_id, initial_liquidity)
+   * Call AMM.create_pool(market_id, initial_liquidity) — signed by admin.
    */
   async createPool(params: CreatePoolParams): Promise<CreatePoolResult> {
     if (!this.ammContractId) {
       throw new Error('AMM contract address not configured');
     }
-
     if (!this.adminKeypair) {
       throw new Error(
         'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
@@ -90,36 +127,26 @@ export class AmmService {
     prepared.sign(this.adminKeypair);
 
     const sendResponse = await this.rpcServer.sendTransaction(prepared);
-
     if (sendResponse.status !== 'PENDING') {
       throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
 
     const txResult = await this.waitForTransaction(sendResponse.hash);
-
     if (txResult.status !== 'SUCCESS') {
       throw new Error('Transaction execution failed');
     }
 
     const { reserves, odds } = await this.getPoolState(params.marketId);
-
-    return {
-      txHash: sendResponse.hash,
-      reserves,
-      odds,
-    };
+    return { txHash: sendResponse.hash, reserves, odds };
   }
 
-  /**
-   * Read-only call: get pool state
-   */
+  // ── Read-only: pool state ──────────────────────────────────────────────────
+
   async getPoolState(marketId: string): Promise<{
     reserves: { yes: bigint; no: bigint };
     odds: { yes: number; no: number };
   }> {
     const contract = new Contract(this.ammContractId);
-
-    // For read-only calls, use admin if available, otherwise use dummy keypair
     const accountKey =
       this.adminKeypair?.publicKey() || Keypair.random().publicKey();
     const sourceAccount = await this.rpcServer.getAccount(accountKey);
@@ -143,23 +170,184 @@ export class AmmService {
     }
 
     const native = scValToNative(sim.result.retval) as Record<string, unknown>;
-
     const reserves = {
       yes: BigInt((native.r_yes ?? native.yes ?? 0) as bigint),
       no: BigInt((native.r_no ?? native.no ?? 0) as bigint),
     };
-
     const odds = {
       yes: Number(native.odds_yes ?? native.yes_odds ?? 0.5),
       no: Number(native.odds_no ?? native.no_odds ?? 0.5),
     };
-
     return { reserves, odds };
   }
 
+  // ── User-signed: build unsigned XDR ───────────────────────────────────────
+
   /**
-   * Wait for transaction finality
+   * Build an unsigned buy_shares transaction.
+   * The returned base64 XDR must be signed by `userPublicKey` before submitting.
+   *
+   * SECURITY: userPublicKey is passed as the buyer argument — on-chain positions
+   * will belong to the user, never to the admin.
    */
+  async buildBuySharesTx(
+    userPublicKey: string,
+    params: BuySharesTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'buy_shares',
+          // buyer = user's own public key, NOT admin
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.amountUsdc, { type: 'i128' }),
+          nativeToScVal(params.minShares, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    // prepareTransaction fetches simulation footprint — still unsigned
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  /**
+   * Build an unsigned sell_shares transaction.
+   */
+  async buildSellSharesTx(
+    userPublicKey: string,
+    params: SellSharesTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'sell_shares',
+          // seller = user, NOT admin
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.shares, { type: 'i128' }),
+          nativeToScVal(params.minPayout, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  /**
+   * Build an unsigned add_liquidity transaction.
+   */
+  async buildAddLiquidityTx(
+    userPublicKey: string,
+    params: AddLiquidityTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'add_liquidity',
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.usdcAmount, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  /**
+   * Build an unsigned remove_liquidity transaction.
+   */
+  async buildRemoveLiquidityTx(
+    userPublicKey: string,
+    params: RemoveLiquidityTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'remove_liquidity',
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.lpTokens, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  // ── User-signed: validate + submit ────────────────────────────────────────
+
+  /**
+   * Validate the user's signature on a pre-signed XDR and submit it.
+   *
+   * SECURITY: userPublicKey comes from the verified JWT — it is never
+   * controlled by the request body.
+   */
+  async submitSignedTx(
+    signedXdrBase64: string,
+    userPublicKey: string,
+    operationName: string
+  ): Promise<SubmitResult> {
+    return userSignedTxService.validateAndSubmit(
+      signedXdrBase64,
+      userPublicKey,
+      operationName
+    );
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
   private async waitForTransaction(
     txHash: string,
     maxRetries: number = 10
@@ -173,7 +361,6 @@ export class AmmService {
       await this.sleep(2000);
       retries++;
     }
-
     throw new Error('Transaction confirmation timeout');
   }
 

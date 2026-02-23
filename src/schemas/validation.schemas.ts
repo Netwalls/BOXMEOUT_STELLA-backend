@@ -9,10 +9,7 @@ import { MarketCategory } from '@prisma/client';
  */
 export function stripHtml(val: string): string {
   // Strip script tags and their content
-  val = val.replace(
-    /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
-    ''
-  );
+  val = val.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
   // Strip remaining HTML tags
   val = val.replace(/<[^>]*>/g, '');
   // Strip HTML entities (e.g. &amp; &lt; &#39; &#x27;)
@@ -75,10 +72,12 @@ export const createMarketBody = z
     category: z.nativeEnum(MarketCategory),
     outcomeA: sanitizedString(1, 100),
     outcomeB: sanitizedString(1, 100),
-    closingAt: z.string().datetime().refine(
-      (val) => new Date(val) > new Date(),
-      { message: 'Closing time must be in the future' }
-    ),
+    closingAt: z
+      .string()
+      .datetime()
+      .refine((val) => new Date(val) > new Date(), {
+        message: 'Closing time must be in the future',
+      }),
     resolutionTime: z.string().datetime().optional(),
   })
   .refine(

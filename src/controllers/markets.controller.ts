@@ -43,7 +43,15 @@ export class MarketsController {
       }
 
       // req.body is already validated and sanitized by middleware
-      const { title, description, category, outcomeA, outcomeB, closingAt, resolutionTime } = req.body;
+      const {
+        title,
+        description,
+        category,
+        outcomeA,
+        outcomeB,
+        closingAt,
+        resolutionTime,
+      } = req.body;
 
       // Create market via service
       const market = await this.marketService.createMarket({

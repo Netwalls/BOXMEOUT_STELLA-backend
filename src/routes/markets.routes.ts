@@ -36,11 +36,8 @@ router.get('/', optionalAuth, (req, res) =>
  * GET /api/markets/:id - Get market details
  * Optional authentication for personalized data
  */
-router.get(
-  '/:id',
-  optionalAuth,
-  validate({ params: uuidParam }),
-  (req, res) => marketsController.getMarketDetails(req, res)
+router.get('/:id', optionalAuth, validate({ params: uuidParam }), (req, res) =>
+  marketsController.getMarketDetails(req, res)
 );
 
 /**

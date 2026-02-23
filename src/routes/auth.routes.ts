@@ -65,10 +65,8 @@ router.post(
  * @body    { refreshToken: string }
  * @returns { success: true, message: string }
  */
-router.post(
-  '/logout',
-  validate({ body: logoutBody }),
-  (req, res) => authController.logout(req, res)
+router.post('/logout', validate({ body: logoutBody }), (req, res) =>
+  authController.logout(req, res)
 );
 
 /**

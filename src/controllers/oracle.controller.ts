@@ -26,10 +26,39 @@ export class OracleController {
       const { outcome } = req.body;
       const market = await this.marketService.getMarketDetails(marketId);
 
+      const nextIndex = (market as any).attestationCount || 0;
+
       const result = await oracleService.submitAttestation(
         market.contractAddress,
-        outcome
+        outcome,
+        nextIndex
       );
+
+      // Record this individual attestation in DB
+      await this.marketService.addAttestation(
+        marketId,
+        result.oraclePublicKey,
+        outcome,
+        result.txHash
+      );
+
+      const threshold = parseInt(process.env.ORACLE_CONSENSUS_THRESHOLD || '3', 10);
+      const newCount = nextIndex + 1;
+
+      let autoResolved = false;
+      let resolutionTxHash = undefined;
+
+      // Auto-resolve when consensus threshold met
+      if (newCount >= threshold) {
+        // Double check on-chain consensus
+        const winningOutcome = await oracleService.checkConsensus(market.contractAddress);
+        if (winningOutcome !== null) {
+          const blockchainResult = await marketBlockchainService.resolveMarket(market.contractAddress);
+          await this.marketService.resolveMarket(marketId, winningOutcome, 'Oracle Consensus Auto-Resolution');
+          autoResolved = true;
+          resolutionTxHash = blockchainResult.txHash;
+        }
+      }
 
       res.json({
         success: true,
@@ -37,6 +66,9 @@ export class OracleController {
           txHash: result.txHash,
           marketId,
           outcome,
+          oraclePublicKey: result.oraclePublicKey,
+          autoResolved,
+          resolutionTxHash,
         },
       });
     } catch (error) {

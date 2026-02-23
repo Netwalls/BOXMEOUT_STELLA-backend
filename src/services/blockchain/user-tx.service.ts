@@ -9,7 +9,7 @@ import {
   FeeBumpTransaction,
   Keypair,
 } from '@stellar/stellar-sdk';
-import { logger } from '../../utils/logger.js';
+import logger from '../../utils/logger.js';
 
 export interface SubmitResult {
   txHash: string;

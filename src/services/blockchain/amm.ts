@@ -10,7 +10,37 @@ import {
   Keypair,
   nativeToScVal,
   scValToNative,
+  xdr,
 } from '@stellar/stellar-sdk';
+
+interface BuySharesParams {
+  marketId: string;
+  outcome: number; // 0 or 1
+  amountUsdc: number;
+  minShares: number;
+}
+
+interface BuySharesResult {
+  sharesReceived: number;
+  txHash: string;
+}
+
+interface SellSharesParams {
+  marketId: string;
+  outcome: number; // 0 or 1
+  shares: number;
+  minPayout: number;
+}
+
+interface SellSharesResult {
+  payout: number;
+  txHash: string;
+}
+
+interface MarketOdds {
+  yesPercentage: number;
+  noPercentage: number;
+}
 
 interface CreatePoolParams {
   marketId: string; // hex string (BytesN<32>)
@@ -51,6 +81,64 @@ export class AmmService {
         console.warn('Invalid ADMIN_WALLET_SECRET for AMM service');
       }
     }
+  }
+
+  /**
+   * Buy outcome shares from the AMM
+   */
+  async buyShares(params: BuySharesParams): Promise<BuySharesResult> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(
+      this.adminKeypair.publicKey()
+    );
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'buy_shares',
+          nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.amountUsdc, { type: 'i128' }),
+          nativeToScVal(params.minShares, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    prepared.sign(this.adminKeypair);
+
+    const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+    if (sendResponse.status !== 'PENDING') {
+      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
+    }
+
+    const txResult = await this.waitForTransaction(sendResponse.hash);
+
+    if (txResult.status !== 'SUCCESS') {
+      throw new Error('Transaction execution failed');
+    }
+
+    const sharesReceived = Number(scValToNative(txResult.returnValue));
+
+    return {
+      sharesReceived,
+      txHash: sendResponse.hash,
+    };
   }
 
   /**

@@ -7,11 +7,6 @@ import { MarketService } from '../services/market.service.js';
 import { oracleService } from '../services/blockchain/oracle.js';
 import { marketBlockchainService } from '../services/blockchain/market.js';
 import { logger } from '../utils/logger.js';
-import { z } from 'zod';
-
-const attestSchema = z.object({
-  outcome: z.number().min(0).max(1),
-});
 
 export class OracleController {
   private marketService: MarketService;
@@ -26,16 +21,9 @@ export class OracleController {
    */
   async attestMarket(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
+      // params and body are already validated by middleware
       const marketId = String(req.params.id);
-      const validation = attestSchema.safeParse(req.body);
-      if (!validation.success) {
-        res.status(400).json({ success: false, error: 'Invalid outcome' });
-        return;
-      }
-
-      // TODO: Check if user is admin/attestor
-
-      const { outcome } = validation.data;
+      const { outcome } = req.body;
       const market = await this.marketService.getMarketDetails(marketId);
 
       const result = await oracleService.submitAttestation(

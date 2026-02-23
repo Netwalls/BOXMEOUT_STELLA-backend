@@ -26,9 +26,11 @@ export class OracleService extends BaseBlockchainService {
     super('OracleService');
     this.oracleContractId = process.env.ORACLE_CONTRACT_ADDRESS || '';
 
-    const oracleSecrets = process.env.ORACLE_NODE_SECRETS?.split(',').map(s => s.trim()).filter(Boolean);
+    const oracleSecrets = process.env.ORACLE_NODE_SECRETS?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (oracleSecrets && oracleSecrets.length > 0) {
-      this.oracleKeypairs = oracleSecrets.map(s => Keypair.fromSecret(s));
+      this.oracleKeypairs = oracleSecrets.map((s) => Keypair.fromSecret(s));
     } else if (this.adminKeypair) {
       // Fallback to admin keypair as single oracle
       this.oracleKeypairs = [this.adminKeypair];
@@ -59,9 +61,7 @@ export class OracleService extends BaseBlockchainService {
 
     try {
       const contract = new Contract(this.oracleContractId);
-      const sourceAccount = await this.rpcServer.getAccount(
-        signer.publicKey()
-      );
+      const sourceAccount = await this.rpcServer.getAccount(signer.publicKey());
 
       // marketId is hex string, convert to Buffer
       const marketIdBuffer = Buffer.from(marketId, 'hex');

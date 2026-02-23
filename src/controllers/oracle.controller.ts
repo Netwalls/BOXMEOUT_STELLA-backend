@@ -42,7 +42,10 @@ export class OracleController {
         result.txHash
       );
 
-      const threshold = parseInt(process.env.ORACLE_CONSENSUS_THRESHOLD || '3', 10);
+      const threshold = parseInt(
+        process.env.ORACLE_CONSENSUS_THRESHOLD || '3',
+        10
+      );
       const newCount = nextIndex + 1;
 
       let autoResolved = false;
@@ -51,10 +54,18 @@ export class OracleController {
       // Auto-resolve when consensus threshold met
       if (newCount >= threshold) {
         // Double check on-chain consensus
-        const winningOutcome = await oracleService.checkConsensus(market.contractAddress);
+        const winningOutcome = await oracleService.checkConsensus(
+          market.contractAddress
+        );
         if (winningOutcome !== null) {
-          const blockchainResult = await marketBlockchainService.resolveMarket(market.contractAddress);
-          await this.marketService.resolveMarket(marketId, winningOutcome, 'Oracle Consensus Auto-Resolution');
+          const blockchainResult = await marketBlockchainService.resolveMarket(
+            market.contractAddress
+          );
+          await this.marketService.resolveMarket(
+            marketId,
+            winningOutcome,
+            'Oracle Consensus Auto-Resolution'
+          );
           autoResolved = true;
           resolutionTxHash = blockchainResult.txHash;
         }

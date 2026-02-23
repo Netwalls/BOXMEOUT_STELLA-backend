@@ -3,11 +3,12 @@
 
 import { rpc, Networks, Keypair } from '@stellar/stellar-sdk';
 import { prisma } from '../../database/prisma.js';
+import { logger } from '../../utils/logger.js';
 
 export abstract class BaseBlockchainService {
   protected readonly rpcServer: rpc.Server;
   protected readonly networkPassphrase: string;
-  protected readonly adminKeypair?: Keypair;
+  protected adminKeypair?: Keypair;
   protected readonly serviceName: string;
 
   constructor(serviceName: string) {
@@ -28,7 +29,21 @@ export abstract class BaseBlockchainService {
       try {
         this.adminKeypair = Keypair.fromSecret(adminSecret);
       } catch (error) {
-        console.warn(`Invalid ADMIN_WALLET_SECRET for ${serviceName}`);
+        logger.warn(`Invalid ADMIN_WALLET_SECRET for ${serviceName}`);
+      }
+    }
+
+    // Fallback logic from recent updates
+    if (!this.adminKeypair) {
+      if (process.env.NODE_ENV !== 'production') {
+        if (!adminSecret) {
+          logger.warn(
+            `${serviceName}: ADMIN_WALLET_SECRET not configured, using random keypair for development (Warning: No funds)`
+          );
+        }
+        this.adminKeypair = Keypair.random();
+      } else {
+        if (!adminSecret) logger.warn(`${serviceName}: ADMIN_WALLET_SECRET not configured`);
       }
     }
   }

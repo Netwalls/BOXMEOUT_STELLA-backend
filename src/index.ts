@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.routes.js';
 import marketRoutes from './routes/markets.routes.js';
 import oracleRoutes from './routes/oracle.js';
 import predictionRoutes from './routes/predictions.js';
+import tradingRoutes from './routes/trading.js';
 import treasuryRoutes from './routes/treasury.routes.js';
 import tradingRoutes from './routes/trading.js';
 
@@ -28,7 +29,10 @@ import {
   noCache,
 } from './middleware/security.middleware.js';
 
+import { requestIdMiddleware } from './middleware/requestId.middleware.js';
 import { requestLogger } from './middleware/logging.middleware.js';
+import { metricsMiddleware } from './middleware/metrics.middleware.js';
+import { logger } from './utils/logger.js';
 import {
   errorHandler,
   notFoundHandler,
@@ -45,7 +49,7 @@ import {
 import { setupSwagger } from './config/swagger.js';
 
 // Initialize Express app
-const app = express();
+const app: express.Express = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
@@ -68,8 +72,12 @@ app.use(noCache);
 app.use(express.json({ limit: '10mb' })); // Increased for blockchain operations
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging
+// Request ID and structured request logging (requestId + userId in logs)
+app.use(requestIdMiddleware);
 app.use(requestLogger);
+
+// Metrics tracking middleware
+app.use(metricsMiddleware);
 
 // Trust proxy (for rate limiting behind reverse proxy)
 app.set('trust proxy', 1);
@@ -77,6 +85,10 @@ app.set('trust proxy', 1);
 // Health Routes
 import healthRoutes from './routes/health.js';
 app.use('/api', healthRoutes);
+
+// Metrics Routes (before rate limiting)
+import metricsRoutes from './routes/metrics.routes.js';
+app.use('/metrics', metricsRoutes);
 
 /**
  * @swagger
@@ -179,24 +191,6 @@ app.use('/api', apiRateLimiter);
 
 // Authentication routes with specific rate limiting
 app.use('/api/auth', authRateLimiter, authRoutes);
-// Metrics
-import client from 'prom-client';
-// Collect default metrics
-const collectDefaultMetrics = client.collectDefaultMetrics;
-collectDefaultMetrics({ register: client.register });
-
-app.get('/metrics', async (_req: Request, res: Response) => {
-  try {
-    res.set('Content-Type', client.register.contentType);
-    const metrics = await client.register.metrics();
-    res.end(metrics);
-  } catch (error) {
-    res.status(500).end(error);
-  }
-});
-
-// Authentication routes
-app.use('/api/auth', authRoutes);
 
 // Market routes
 app.use('/api/markets', marketRoutes);
@@ -205,6 +199,8 @@ app.use('/api/markets', oracleRoutes);
 // Prediction routes (commit-reveal flow)
 app.use('/api/markets', predictionRoutes);
 
+// Trading routes (buy/sell shares, odds)
+app.use('/api/markets', tradingRoutes);
 // Treasury routes
 app.use('/api/treasury', treasuryRoutes);
 
@@ -232,31 +228,25 @@ app.use(errorHandler);
 async function startServer(): Promise<void> {
   try {
     // Initialize Redis connection
-    console.log('🔌 Connecting to Redis...');
+    logger.info('Connecting to Redis');
     await initializeRedis();
 
     // TODO: Initialize Prisma/Database connection
     // await prisma.$connect();
-    // console.log('🗄️  Database connected');
+    // logger.info('Database connected');
 
     // Start HTTP server
     app.listen(PORT, () => {
-      console.log(`
-╔════════════════════════════════════════════════════════════════╗
-║                                                                ║
-║   🥊 BoxMeOut Stella Backend API                               ║
-║                                                                ║
-║   Environment: ${NODE_ENV.padEnd(32)} ║
-║   Port: ${PORT.toString().padEnd(39)} ║
-║   API: http://localhost:${PORT.toString().padEnd(36)} ║
-║   Docs: http://localhost:${PORT}/api-docs${' '.padEnd(23)} ║
-║   Health: http://localhost:${PORT}/health${' '.padEnd(22)} ║
-║                                                                ║
-╚════════════════════════════════════════════════════════════════╝
-      `);
+      logger.info('BoxMeOut Stella Backend API started', {
+        environment: NODE_ENV,
+        port: PORT,
+        api: `http://localhost:${PORT}`,
+        docs: `http://localhost:${PORT}/api-docs`,
+        health: `http://localhost:${PORT}/health`,
+      });
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    logger.error('Failed to start server', { error });
     process.exit(1);
   }
 }
@@ -266,7 +256,7 @@ async function startServer(): Promise<void> {
 // =============================================================================
 
 async function gracefulShutdown(signal: string): Promise<void> {
-  console.log(`\n🛑 ${signal} received. Shutting down gracefully...`);
+  logger.info(`${signal} received. Shutting down gracefully`);
 
   try {
     // Close Redis connection
@@ -275,10 +265,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
     // TODO: Close database connection
     // await prisma.$disconnect();
 
-    console.log('✅ Cleanup completed. Exiting.');
+    logger.info('Cleanup completed. Exiting.');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
+    logger.error('Error during shutdown', { error });
     process.exit(1);
   }
 }
@@ -289,12 +279,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
+  logger.error('Uncaught Exception', { error });
   gracefulShutdown('uncaughtException');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  logger.error('Unhandled Rejection', { promise, reason });
 });
 
 // Start the server if runs directly

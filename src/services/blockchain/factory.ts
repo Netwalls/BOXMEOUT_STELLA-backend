@@ -13,6 +13,7 @@ import {
   Address,
 } from '@stellar/stellar-sdk';
 import { BaseBlockchainService } from './base.js';
+import { logger } from '../../utils/logger.js';
 
 interface CreateMarketParams {
   title: string;
@@ -90,6 +91,7 @@ export class FactoryService extends BaseBlockchainService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
+        // Use unified retry logic from BaseBlockchainService
         const result = await this.waitForTransaction(txHash, 'createMarket', params);
 
         if (result.status === 'SUCCESS') {
@@ -112,7 +114,7 @@ export class FactoryService extends BaseBlockchainService {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
     } catch (error) {
-      console.error('Factory.create_market() error:', error);
+      logger.error('Factory.create_market() error', { error });
       throw new Error(
         `Failed to create market: ${
           error instanceof Error ? error.message : 'Unknown error'
@@ -140,7 +142,7 @@ export class FactoryService extends BaseBlockchainService {
         throw new Error('Unexpected return value type');
       }
     } catch (error) {
-      console.error('Error extracting market_id:', error);
+      logger.error('Error extracting market_id', { error });
       throw new Error('Failed to extract market ID from contract response');
     }
   }
@@ -157,7 +159,16 @@ export class FactoryService extends BaseBlockchainService {
       const contract = new Contract(this.factoryContractId);
       const accountKey =
         this.adminKeypair?.publicKey() || Keypair.random().publicKey();
-      const sourceAccount = await this.rpcServer.getAccount(accountKey);
+
+      let sourceAccount;
+      try {
+        sourceAccount = await this.rpcServer.getAccount(accountKey);
+      } catch (e) {
+        logger.warn(
+          'Could not load source account for getMarketCount simulation, using random keypair fallback'
+        );
+        sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+      }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -179,7 +190,7 @@ export class FactoryService extends BaseBlockchainService {
 
       throw new Error('Failed to get market count');
     } catch (error) {
-      console.error('getMarketCount error:', error);
+      logger.error('getMarketCount error', { error });
       return 0;
     }
   }

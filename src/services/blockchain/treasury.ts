@@ -11,6 +11,7 @@ import {
   Keypair,
 } from '@stellar/stellar-sdk';
 import { BaseBlockchainService } from './base.js';
+import { logger } from '../../utils/logger.js';
 
 export interface TreasuryBalances {
   totalBalance: string;
@@ -41,8 +42,17 @@ export class TreasuryService extends BaseBlockchainService {
     try {
       const contract = new Contract(this.treasuryContractId);
       const accountKey =
-        this.adminKeypair?.publicKey() || (require('@stellar/stellar-sdk').Keypair.random().publicKey());
-      const sourceAccount = await this.rpcServer.getAccount(accountKey);
+        this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+
+      let sourceAccount;
+      try {
+        sourceAccount = await this.rpcServer.getAccount(accountKey);
+      } catch (e) {
+        logger.warn(
+          'Could not load source account for getBalances simulation, using random keypair fallback'
+        );
+        sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+      }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -66,6 +76,7 @@ export class TreasuryService extends BaseBlockchainService {
         platformFees: balances.platform_fees?.toString() || '0',
       };
     } catch (error) {
+      logger.error('Treasury balance fetch failed', { error });
       throw new Error(
         `Treasury balance fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -115,6 +126,7 @@ export class TreasuryService extends BaseBlockchainService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
+        // Use unified retry logic from BaseBlockchainService
         await this.waitForTransaction(txHash, 'distributeLeaderboard', { recipientsCount: recipients.length });
 
         const totalDistributed = recipients
@@ -130,6 +142,7 @@ export class TreasuryService extends BaseBlockchainService {
 
       throw new Error('Transaction submission failed');
     } catch (error) {
+      logger.error('Leaderboard distribution failed', { error });
       throw new Error(
         `Leaderboard distribution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -180,6 +193,7 @@ export class TreasuryService extends BaseBlockchainService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
+        // Use unified retry logic from BaseBlockchainService
         await this.waitForTransaction(txHash, 'distributeCreator', { marketId, creatorAddress, amount });
 
         return {
@@ -191,6 +205,7 @@ export class TreasuryService extends BaseBlockchainService {
 
       throw new Error('Transaction submission failed');
     } catch (error) {
+      logger.error('Creator distribution failed', { error });
       throw new Error(
         `Creator distribution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );

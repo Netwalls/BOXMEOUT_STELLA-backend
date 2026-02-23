@@ -11,6 +11,7 @@ import {
   scValToNative,
 } from '@stellar/stellar-sdk';
 import { BaseBlockchainService } from './base.js';
+import { logger } from '../../utils/logger.js';
 
 export interface AttestationResult {
   txHash: string;
@@ -75,15 +76,18 @@ export class OracleService extends BaseBlockchainService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
+        // Use unified retry logic from BaseBlockchainService
         await this.waitForTransaction(txHash, 'submitAttestation', { marketId, outcome });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
       }
     } catch (error) {
-      console.error('Oracle.submit_attestation() error:', error);
+      logger.error('Oracle.submit_attestation() error', { error });
       throw new Error(
-        `Failed to submit attestation on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to submit attestation on blockchain: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -102,8 +106,17 @@ export class OracleService extends BaseBlockchainService {
       const contract = new Contract(this.oracleContractId);
       const marketIdBuffer = Buffer.from(marketId, 'hex');
       const accountKey =
-        this.adminKeypair?.publicKey() || (require('@stellar/stellar-sdk').Keypair.random().publicKey());
-      const sourceAccount = await this.rpcServer.getAccount(accountKey);
+        this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+
+      let sourceAccount;
+      try {
+        sourceAccount = await this.rpcServer.getAccount(accountKey);
+      } catch (e) {
+        logger.warn(
+          'Could not load source account for checkConsensus simulation, using random keypair fallback'
+        );
+        sourceAccount = await this.rpcServer.getAccount(Keypair.random().publicKey());
+      }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
@@ -130,7 +143,7 @@ export class OracleService extends BaseBlockchainService {
 
       return null;
     } catch (error) {
-      console.error('Error checking consensus:', error);
+      logger.error('Error checking consensus', { error });
       return null;
     }
   }

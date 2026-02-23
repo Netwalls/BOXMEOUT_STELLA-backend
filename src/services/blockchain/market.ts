@@ -8,6 +8,7 @@ import {
   nativeToScVal,
 } from '@stellar/stellar-sdk';
 import { BaseBlockchainService } from './base.js';
+import { logger } from '../../utils/logger.js';
 
 export interface MarketActionResult {
   txHash: string;
@@ -54,13 +55,14 @@ export class MarketBlockchainService extends BaseBlockchainService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
+        // Use unified retry logic from BaseBlockchainService
         await this.waitForTransaction(txHash, 'resolveMarket', { marketContractAddress });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
       }
     } catch (error) {
-      console.error('Market.resolve_market() error:', error);
+      logger.error('Market.resolve_market() error', { error });
       throw new Error(
         `Failed to resolve market on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -107,13 +109,14 @@ export class MarketBlockchainService extends BaseBlockchainService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
+        // Use unified retry logic from BaseBlockchainService
         await this.waitForTransaction(txHash, 'claimWinnings', { marketContractAddress, userPublicKey });
         return { txHash };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
       }
     } catch (error) {
-      console.error('Market.claim_winnings() error:', error);
+      logger.error('Market.claim_winnings() error', { error });
       throw new Error(
         `Failed to claim winnings on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`
       );

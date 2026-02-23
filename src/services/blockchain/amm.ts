@@ -5,13 +5,11 @@ import {
   Contract,
   rpc,
   TransactionBuilder,
-  Networks,
   BASE_FEE,
-  Keypair,
   nativeToScVal,
   scValToNative,
-  xdr,
 } from '@stellar/stellar-sdk';
+import { BaseBlockchainService } from './base.js';
 
 interface BuySharesParams {
   marketId: string;
@@ -63,34 +61,12 @@ interface CreatePoolResult {
   odds: { yes: number; no: number };
 }
 
-export class AmmService {
-  private readonly rpcServer: rpc.Server;
+export class AmmService extends BaseBlockchainService {
   private readonly ammContractId: string;
-  private readonly networkPassphrase: string;
-  private readonly adminKeypair?: Keypair; // Optional - only needed for write operations
 
   constructor() {
-    const rpcUrl =
-      process.env.STELLAR_SOROBAN_RPC_URL ||
-      'https://soroban-testnet.stellar.org';
-    const network = process.env.STELLAR_NETWORK || 'testnet';
-
-    this.rpcServer = new rpc.Server(rpcUrl, {
-      allowHttp: rpcUrl.includes('localhost'),
-    });
+    super('AmmService');
     this.ammContractId = process.env.AMM_CONTRACT_ADDRESS || '';
-    this.networkPassphrase =
-      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-
-    // Admin keypair is optional - only needed for contract write operations
-    const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (adminSecret) {
-      try {
-        this.adminKeypair = Keypair.fromSecret(adminSecret);
-      } catch (error) {
-        console.warn('Invalid ADMIN_WALLET_SECRET for AMM service');
-      }
-    }
   }
 
   /**
@@ -101,15 +77,11 @@ export class AmmService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error(
-        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
-      );
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(
-      this.adminKeypair.publicKey()
-    );
+    const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
 
     const builtTx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -137,7 +109,7 @@ export class AmmService {
       throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
 
-    const txResult = await this.waitForTransaction(sendResponse.hash);
+    const txResult = await this.waitForTransaction(sendResponse.hash, 'buyShares', params);
 
     if (txResult.status !== 'SUCCESS') {
       throw new Error('Transaction execution failed');
@@ -163,15 +135,11 @@ export class AmmService {
       throw new Error('AMM contract address not configured');
     }
     if (!this.adminKeypair) {
-      throw new Error(
-        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
-      );
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(
-      this.adminKeypair.publicKey()
-    );
+    const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
 
     const builtTx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -199,17 +167,13 @@ export class AmmService {
       throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
 
-    const txResult = await this.waitForTransaction(sendResponse.hash);
+    const txResult = await this.waitForTransaction(sendResponse.hash, 'sellShares', params);
 
     if (txResult.status !== 'SUCCESS') {
       throw new Error('Transaction execution failed');
     }
 
     const payout = Number(scValToNative(txResult.returnValue));
-    // In sell_shares, payout returned is already AFTER fee.
-    // Payout = (Gross Payout) * (1 - 0.002)
-    // So Gross Payout = payout / 0.998
-    // Fee = Gross Payout - payout
     const grossPayout = payout / 0.998;
     const feeAmount = grossPayout - payout;
 
@@ -230,8 +194,7 @@ export class AmmService {
     }
 
     const contract = new Contract(this.ammContractId);
-    const accountKey =
-      this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+    const accountKey = this.adminKeypair?.publicKey() || (require('@stellar/stellar-sdk').Keypair.random().publicKey());
 
     const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
@@ -283,15 +246,11 @@ export class AmmService {
     }
 
     if (!this.adminKeypair) {
-      throw new Error(
-        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
-      );
+      throw new Error('ADMIN_WALLET_SECRET not configured - cannot sign transactions');
     }
 
     const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(
-      this.adminKeypair.publicKey()
-    );
+    const sourceAccount = await this.rpcServer.getAccount(this.adminKeypair.publicKey());
 
     const builtTx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -316,7 +275,7 @@ export class AmmService {
       throw new Error(`Transaction submission failed: ${sendResponse.status}`);
     }
 
-    const txResult = await this.waitForTransaction(sendResponse.hash);
+    const txResult = await this.waitForTransaction(sendResponse.hash, 'createPool', params);
 
     if (txResult.status !== 'SUCCESS') {
       throw new Error('Transaction execution failed');
@@ -341,8 +300,7 @@ export class AmmService {
     const contract = new Contract(this.ammContractId);
 
     // For read-only calls, use admin if available, otherwise use dummy keypair
-    const accountKey =
-      this.adminKeypair?.publicKey() || Keypair.random().publicKey();
+    const accountKey = this.adminKeypair?.publicKey() || (require('@stellar/stellar-sdk').Keypair.random().publicKey());
     const sourceAccount = await this.rpcServer.getAccount(accountKey);
 
     const builtTx = new TransactionBuilder(sourceAccount, {
@@ -376,30 +334,6 @@ export class AmmService {
     };
 
     return { reserves, odds };
-  }
-
-  /**
-   * Wait for transaction finality
-   */
-  private async waitForTransaction(
-    txHash: string,
-    maxRetries: number = 10
-  ): Promise<any> {
-    let retries = 0;
-    while (retries < maxRetries) {
-      const tx = await this.rpcServer.getTransaction(txHash);
-      if (tx.status === 'SUCCESS') return tx;
-      if (tx.status === 'FAILED')
-        throw new Error('Transaction failed on blockchain');
-      await this.sleep(2000);
-      retries++;
-    }
-
-    throw new Error('Transaction confirmation timeout');
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

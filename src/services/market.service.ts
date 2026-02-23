@@ -257,6 +257,14 @@ export class MarketService {
     return await this.predictionRepository.claimWinnings(prediction.id);
   }
 
+  async addAttestation(marketId: string, oracleId: string, outcome: number, txHash: string) {
+    return await this.marketRepository.addAttestation(marketId, oracleId, outcome, txHash);
+  }
+
+  async hasAttested(marketId: string, oracleId: string): Promise<boolean> {
+    return await this.marketRepository.hasAttested(marketId, oracleId);
+  }
+
   private async settlePredictions(marketId: string, winningOutcome: number) {
     const market = await this.marketRepository.findById(marketId);
     if (!market) throw new Error('Market not found');

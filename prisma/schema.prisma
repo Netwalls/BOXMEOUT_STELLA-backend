@@ -486,3 +486,34 @@ enum DistributionStatus {
   CONFIRMED
   FAILED
 }
+
+// ============================================================================
+// BLOCKCHAIN MONITORING
+// ============================================================================
+
+model BlockchainDeadLetterQueue {
+  id           String    @id @default(uuid())
+  txHash       String    @unique @map("tx_hash")
+  serviceName  String    @map("service_name")
+  functionName String    @map("function_name")
+  params       Json
+  error        String    @db.Text
+  status       DlqStatus @default(PENDING)
+  retryCount   Int       @default(0) @map("retry_count")
+  lastRetryAt  DateTime? @map("last_retry_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([serviceName])
+  @@index([status])
+  @@index([createdAt])
+  @@map("blockchain_dlq")
+}
+
+enum DlqStatus {
+  PENDING
+  RETRYING
+  RESOLVED
+  FAILED
+  PERMANENT_FAILURE
+}

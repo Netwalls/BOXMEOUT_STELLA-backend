@@ -7,6 +7,7 @@ import { shareRepository } from '../repositories/share.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { prisma } from '../database/prisma.js';
 import { Decimal } from '@prisma/client/runtime/library';
+import { ApiError } from '../middleware/error.middleware.js';
 
 const tradeRepository = new TradeRepository();
 
@@ -120,7 +121,9 @@ export class TradingService {
 
     // Verify slippage protection
     if (buyResult.sharesReceived < calculatedMinShares) {
-      throw new Error(
+      throw new ApiError(
+        400,
+        'SLIPPAGE_EXCEEDED',
         `Slippage exceeded. Expected at least ${calculatedMinShares} shares, got ${buyResult.sharesReceived}`
       );
     }
@@ -271,7 +274,9 @@ export class TradingService {
 
     // Verify slippage protection
     if (sellResult.payout < calculatedMinPayout) {
-      throw new Error(
+      throw new ApiError(
+        400,
+        'SLIPPAGE_EXCEEDED',
         `Slippage exceeded. Expected at least ${calculatedMinPayout} USDC, got ${sellResult.payout} USDC`
       );
     }

@@ -343,6 +343,70 @@ export class TradingService {
   }
 
   /**
+   * Add USDC liquidity to an existing AMM pool for a market.
+   * Mints LP tokens proportional to the contribution.
+   */
+  async addLiquidity(
+    userId: string,
+    marketId: string,
+    usdcAmount: bigint
+  ): Promise<{ lpTokensMinted: bigint; txHash: string }> {
+    if (usdcAmount <= BigInt(0)) {
+      throw new Error('usdcAmount must be greater than 0');
+    }
+
+    const market = await prisma.market.findUnique({ where: { id: marketId } });
+    if (!market) {
+      throw new Error('Market not found');
+    }
+    if (market.status !== MarketStatus.OPEN) {
+      throw new Error(
+        `Market is ${market.status}. Liquidity can only be added to OPEN markets.`
+      );
+    }
+
+    const result = await ammService.addLiquidity({ marketId, usdcAmount });
+
+    return {
+      lpTokensMinted: result.lpTokensMinted,
+      txHash: result.txHash,
+    };
+  }
+
+  /**
+   * Remove liquidity from an AMM pool by redeeming LP tokens.
+   * Returns proportional YES/NO reserve amounts as USDC.
+   */
+  async removeLiquidity(
+    userId: string,
+    marketId: string,
+    lpTokens: bigint
+  ): Promise<{
+    yesAmount: bigint;
+    noAmount: bigint;
+    totalUsdcReturned: bigint;
+    txHash: string;
+  }> {
+    if (lpTokens <= BigInt(0)) {
+      throw new Error('lpTokens must be greater than 0');
+    }
+
+    const market = await prisma.market.findUnique({ where: { id: marketId } });
+    if (!market) {
+      throw new Error('Market not found');
+    }
+
+    const result = await ammService.removeLiquidity({ marketId, lpTokens });
+
+    return {
+      yesAmount: result.yesAmount,
+      noAmount: result.noAmount,
+      totalUsdcReturned: result.totalUsdcReturned,
+      txHash: result.txHash,
+    };
+  }
+
+  /**
    * Get current market odds
    */
   async getMarketOdds(marketId: string): Promise<MarketOddsResult> {

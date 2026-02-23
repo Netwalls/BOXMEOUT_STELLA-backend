@@ -236,7 +236,10 @@ export class MarketsController {
   /**
    * PATCH /api/markets/:id/deactivate - Deactivate a market
    */
-  async deactivateMarket(req: AuthenticatedRequest, res: Response): Promise<void> {
+  async deactivateMarket(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
     try {
       const marketId = req.params.id as string;
 
@@ -265,7 +268,9 @@ export class MarketsController {
         error: {
           code: 'INTERNAL_ERROR',
           message:
-            error instanceof Error ? error.message : 'Failed to deactivate market',
+            error instanceof Error
+              ? error.message
+              : 'Failed to deactivate market',
         },
       });
     }

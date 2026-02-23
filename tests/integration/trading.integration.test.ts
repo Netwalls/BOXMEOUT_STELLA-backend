@@ -22,6 +22,8 @@ vi.mock('../../src/services/blockchain/amm.js', () => ({
     buyShares: vi.fn(),
     sellShares: vi.fn(),
     getOdds: vi.fn(),
+    addLiquidity: vi.fn(),
+    removeLiquidity: vi.fn(),
   },
 }));
 
@@ -705,5 +707,199 @@ describe('Trading API - Get Odds', () => {
     expect(response.body.data.yes.liquidity).toBe(5500);
     expect(response.body.data.no.liquidity).toBe(4500);
     expect(response.body.data.totalLiquidity).toBe(10000);
+  });
+});
+
+describe('Trading API - Add Liquidity', () => {
+  let authToken: string;
+
+  beforeAll(() => {
+    authToken = 'mock-jwt-token';
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should add liquidity successfully to an OPEN market', async () => {
+    vi.mocked(prisma.market.findUnique).mockResolvedValue({
+      id: 'test-market-id',
+      status: MarketStatus.OPEN,
+    } as any);
+
+    vi.mocked(ammService.addLiquidity).mockResolvedValue({
+      lpTokensMinted: BigInt(500),
+      txHash: 'mock-tx-hash-add-liquidity',
+    });
+
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/add')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ usdcAmount: '1000' })
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveProperty('lpTokensMinted', '500');
+    expect(response.body.data).toHaveProperty('txHash', 'mock-tx-hash-add-liquidity');
+
+    expect(ammService.addLiquidity).toHaveBeenCalledWith({
+      marketId: 'test-market-id',
+      usdcAmount: BigInt(1000),
+    });
+  });
+
+  it('should reject if usdcAmount is missing', async () => {
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/add')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({})
+      .expect(400);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(ammService.addLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should reject if usdcAmount is zero', async () => {
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/add')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ usdcAmount: '0' })
+      .expect(400);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(ammService.addLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should return 404 if market does not exist', async () => {
+    vi.mocked(prisma.market.findUnique).mockResolvedValue(null);
+
+    const response = await request(app)
+      .post('/api/markets/nonexistent-market/liquidity/add')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ usdcAmount: '1000' })
+      .expect(404);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('NOT_FOUND');
+    expect(ammService.addLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should reject adding liquidity to a CLOSED market', async () => {
+    vi.mocked(prisma.market.findUnique).mockResolvedValue({
+      id: 'test-market-id',
+      status: MarketStatus.CLOSED,
+    } as any);
+
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/add')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ usdcAmount: '1000' })
+      .expect(400);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('BAD_REQUEST');
+    expect(response.body.error.message).toContain('OPEN');
+    expect(ammService.addLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should require authentication', async () => {
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/add')
+      .send({ usdcAmount: '1000' })
+      .expect(401);
+
+    expect(response.body.success).toBe(false);
+  });
+});
+
+describe('Trading API - Remove Liquidity', () => {
+  let authToken: string;
+
+  beforeAll(() => {
+    authToken = 'mock-jwt-token';
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should remove liquidity successfully', async () => {
+    vi.mocked(prisma.market.findUnique).mockResolvedValue({
+      id: 'test-market-id',
+      status: MarketStatus.OPEN,
+    } as any);
+
+    vi.mocked(ammService.removeLiquidity).mockResolvedValue({
+      yesAmount: BigInt(250),
+      noAmount: BigInt(250),
+      totalUsdcReturned: BigInt(500),
+      txHash: 'mock-tx-hash-remove-liquidity',
+    });
+
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/remove')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ lpTokens: '500' })
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveProperty('yesAmount', '250');
+    expect(response.body.data).toHaveProperty('noAmount', '250');
+    expect(response.body.data).toHaveProperty('totalUsdcReturned', '500');
+    expect(response.body.data).toHaveProperty('txHash', 'mock-tx-hash-remove-liquidity');
+
+    expect(ammService.removeLiquidity).toHaveBeenCalledWith({
+      marketId: 'test-market-id',
+      lpTokens: BigInt(500),
+    });
+  });
+
+  it('should reject if lpTokens is missing', async () => {
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/remove')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({})
+      .expect(400);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(ammService.removeLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should reject if lpTokens is zero', async () => {
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/remove')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ lpTokens: '0' })
+      .expect(400);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(ammService.removeLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should return 404 if market does not exist', async () => {
+    vi.mocked(prisma.market.findUnique).mockResolvedValue(null);
+
+    const response = await request(app)
+      .post('/api/markets/nonexistent-market/liquidity/remove')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ lpTokens: '500' })
+      .expect(404);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('NOT_FOUND');
+    expect(ammService.removeLiquidity).not.toHaveBeenCalled();
+  });
+
+  it('should require authentication', async () => {
+    const response = await request(app)
+      .post('/api/markets/test-market-id/liquidity/remove')
+      .send({ lpTokens: '500' })
+      .expect(401);
+
+    expect(response.body.success).toBe(false);
   });
 });

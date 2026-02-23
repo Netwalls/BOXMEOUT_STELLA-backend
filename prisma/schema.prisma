@@ -37,19 +37,20 @@ model User {
   isActive        Boolean   @default(true) @map("is_active")
 
   // Relations
-  createdMarkets    Market[]       @relation("MarketCreator")
-  predictions       Prediction[]
-  shares            Share[]
-  trades            Trade[]
-  transactions      Transaction[]
-  achievements      Achievement[]
-  notifications     Notification[]
-  leaderboard       Leaderboard?
-  referralsGiven    Referral[]     @relation("Referrer")
-  referralsReceived Referral[]     @relation("Referred")
-  refreshTokens     RefreshToken[]
-  disputes          Dispute[]
-  auditLogs         AuditLog[]
+  createdMarkets       Market[]              @relation("MarketCreator")
+  predictions          Prediction[]
+  shares               Share[]
+  trades               Trade[]
+  transactions         Transaction[]
+  achievements         Achievement[]
+  notifications        Notification[]
+  categoryLeaderboards CategoryLeaderboard[]
+  leaderboard          Leaderboard?
+  referralsGiven       Referral[]            @relation("Referrer")
+  referralsReceived    Referral[]            @relation("Referred")
+  refreshTokens        RefreshToken[]
+  disputes             Dispute[]
+  auditLogs            AuditLog[]
 
   @@index([email])
   @@index([username])
@@ -345,6 +346,24 @@ enum StreakType {
   WIN
   LOSS
   NONE
+}
+
+model CategoryLeaderboard {
+  userId          String         @map("user_id")
+  category        MarketCategory
+  rank            Int            @default(0)
+  totalPnl        Decimal        @default(0) @map("total_pnl") @db.Decimal(18, 6)
+  winRate         Decimal        @default(0) @map("win_rate") @db.Decimal(5, 2)
+  predictionCount Int            @default(0) @map("prediction_count")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([userId, category])
+  @@index([category, rank])
+  @@index([category, totalPnl(sort: Desc)])
+  @@map("category_leaderboard")
 }
 
 model Achievement {

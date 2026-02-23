@@ -7,20 +7,27 @@ import { logger } from '../utils/logger.js';
 import { factoryService } from './blockchain/factory.js';
 import { ammService } from './blockchain/amm.js';
 import { UserService } from './user.service.js';
+import {
+  leaderboardService,
+  LeaderboardService,
+} from './leaderboard.service.js';
 
 export class MarketService {
   private marketRepository: MarketRepository;
   private predictionRepository: PredictionRepository;
   private userService: UserService;
+  private leaderboardService: LeaderboardService;
 
   constructor(
     marketRepo?: MarketRepository,
     predictionRepo?: PredictionRepository,
-    userSvc?: UserService
+    userSvc?: UserService,
+    leaderboardSvc?: LeaderboardService
   ) {
     this.marketRepository = marketRepo || new MarketRepository();
     this.predictionRepository = predictionRepo || new PredictionRepository();
     this.userService = userSvc || new UserService();
+    this.leaderboardService = leaderboardSvc || leaderboardService;
   }
 
   async createPool(marketId: string, initialLiquidity: bigint) {
@@ -251,6 +258,9 @@ export class MarketService {
   }
 
   private async settlePredictions(marketId: string, winningOutcome: number) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) throw new Error('Market not found');
+
     const predictions =
       await this.predictionRepository.findMarketPredictions(marketId);
 
@@ -279,11 +289,39 @@ export class MarketService {
     for (const userId of userIds) {
       try {
         await this.userService.calculateAndUpdateTier(userId);
+
+        // Find predictions for this specific user to calculate their total PNL for this market
+        const userPredictions = predictions.filter((p) => p.userId === userId);
+        let totalUserPnl = 0;
+        let hasWin = false;
+
+        for (const p of userPredictions) {
+          const isWinner = p.predictedOutcome === winningOutcome;
+          if (isWinner) hasWin = true;
+
+          const pnlUsd = isWinner
+            ? Number(p.amountUsdc) * 0.9
+            : -Number(p.amountUsdc);
+          totalUserPnl += pnlUsd;
+        }
+
+        await this.leaderboardService.handleSettlement(
+          userId,
+          marketId,
+          market.category,
+          totalUserPnl,
+          hasWin
+        );
       } catch (error) {
-        logger.error('Failed to update tier for user', { userId, error });
-        // Don't fail the whole resolution process if one tier update fails
+        logger.error('Failed to update tier or leaderboard for user', {
+          userId,
+          error,
+        });
       }
     }
+
+    // Recalculate all rankings after settlement
+    await this.leaderboardService.calculateRanks();
   }
 
   async cancelMarket(marketId: string, creatorId: string) {

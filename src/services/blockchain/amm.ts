@@ -64,6 +64,28 @@ interface CreatePoolResult {
   odds: { yes: number; no: number };
 }
 
+interface AddLiquidityParams {
+  marketId: string; // hex string (BytesN<32>)
+  usdcAmount: bigint;
+}
+
+interface AddLiquidityResult {
+  lpTokensMinted: bigint;
+  txHash: string;
+}
+
+interface RemoveLiquidityParams {
+  marketId: string; // hex string (BytesN<32>)
+  lpTokens: bigint;
+}
+
+interface RemoveLiquidityResult {
+  yesAmount: bigint;
+  noAmount: bigint;
+  totalUsdcReturned: bigint;
+  txHash: string;
+}
+
 export class AmmService extends BaseBlockchainService {
   private readonly ammContractId: string;
 
@@ -391,6 +413,168 @@ export class AmmService extends BaseBlockchainService {
       logger.error('AMM.create_pool() error', { error });
       throw new Error(
         `Failed to create pool: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Add USDC liquidity to an existing pool and receive minted LP tokens.
+   * Calls AMM.add_liquidity(lp_provider, market_id, usdc_amount)
+   * @param params - Add liquidity parameters
+   * @returns LP tokens minted and transaction hash
+   */
+  async addLiquidity(params: AddLiquidityParams): Promise<AddLiquidityResult> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    try {
+      const contract = new Contract(this.ammContractId);
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
+
+      const builtTx = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'add_liquidity',
+            nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
+            nativeToScVal(params.usdcAmount, { type: 'i128' })
+          )
+        )
+        .setTimeout(30)
+        .build();
+
+      const prepared = await this.rpcServer.prepareTransaction(builtTx);
+      prepared.sign(this.adminKeypair);
+
+      const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+      if (sendResponse.status === 'PENDING') {
+        const txHash = sendResponse.hash;
+        const result = await this.waitForTransaction(
+          txHash,
+          'addLiquidity',
+          params
+        );
+
+        if (result.status === 'SUCCESS') {
+          // Contract returns u128 LP tokens minted
+          const lpTokensMinted = result.returnValue
+            ? BigInt(scValToNative(result.returnValue) as bigint)
+            : BigInt(0);
+
+          return { lpTokensMinted, txHash };
+        } else {
+          throw new Error(`Transaction failed: ${result.status}`);
+        }
+      } else {
+        throw new Error(
+          `Transaction submission failed: ${sendResponse.status}`
+        );
+      }
+    } catch (error) {
+      logger.error('AMM.add_liquidity() error', { error });
+      throw new Error(
+        `Failed to add liquidity: ${error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Remove liquidity from an existing pool by redeeming LP tokens.
+   * Calls AMM.remove_liquidity(lp_provider, market_id, lp_tokens)
+   * @param params - Remove liquidity parameters
+   * @returns YES/NO amounts and total USDC returned, plus transaction hash
+   */
+  async removeLiquidity(
+    params: RemoveLiquidityParams
+  ): Promise<RemoveLiquidityResult> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    try {
+      const contract = new Contract(this.ammContractId);
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
+
+      const builtTx = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'remove_liquidity',
+            nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
+            nativeToScVal(params.lpTokens, { type: 'i128' })
+          )
+        )
+        .setTimeout(30)
+        .build();
+
+      const prepared = await this.rpcServer.prepareTransaction(builtTx);
+      prepared.sign(this.adminKeypair);
+
+      const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+      if (sendResponse.status === 'PENDING') {
+        const txHash = sendResponse.hash;
+        const result = await this.waitForTransaction(
+          txHash,
+          'removeLiquidity',
+          params
+        );
+
+        if (result.status === 'SUCCESS') {
+          // Contract returns (u128, u128) tuple → (yes_amount, no_amount)
+          const native = result.returnValue
+            ? scValToNative(result.returnValue)
+            : [BigInt(0), BigInt(0)];
+          const pair = Array.isArray(native) ? native : [BigInt(0), BigInt(0)];
+          const yesAmount = BigInt(pair[0] ?? 0);
+          const noAmount = BigInt(pair[1] ?? 0);
+
+          return {
+            yesAmount,
+            noAmount,
+            totalUsdcReturned: yesAmount + noAmount,
+            txHash,
+          };
+        } else {
+          throw new Error(`Transaction failed: ${result.status}`);
+        }
+      } else {
+        throw new Error(
+          `Transaction submission failed: ${sendResponse.status}`
+        );
+      }
+    } catch (error) {
+      logger.error('AMM.remove_liquidity() error', { error });
+      throw new Error(
+        `Failed to remove liquidity: ${error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }

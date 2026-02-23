@@ -6,7 +6,7 @@ export class ReferralsController {
   async getInfo(req: Request, res: Response): Promise<void> {
     try {
       // req.user is attached by requireAuth middleware
-      // @ts-ignore
+      // @ts-expect-error req.user is attached by requireAuth middleware
       const userId = req.user?.userId as string;
       if (!userId) {
         res
@@ -36,7 +36,7 @@ export class ReferralsController {
         return;
       }
 
-      // @ts-ignore
+      // @ts-expect-error req.user is attached by requireAuth middleware
       const referredUserId = req.user?.userId as string;
       if (!referredUserId) {
         res

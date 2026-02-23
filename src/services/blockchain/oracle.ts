@@ -15,39 +15,52 @@ import { logger } from '../../utils/logger.js';
 
 export interface AttestationResult {
   txHash: string;
+  oraclePublicKey: string;
 }
 
 export class OracleService extends BaseBlockchainService {
   private oracleContractId: string;
+  private oracleKeypairs: Keypair[] = [];
 
   constructor() {
     super('OracleService');
     this.oracleContractId = process.env.ORACLE_CONTRACT_ADDRESS || '';
+
+    const oracleSecrets = process.env.ORACLE_NODE_SECRETS?.split(',').map(s => s.trim()).filter(Boolean);
+    if (oracleSecrets && oracleSecrets.length > 0) {
+      this.oracleKeypairs = oracleSecrets.map(s => Keypair.fromSecret(s));
+    } else if (this.adminKeypair) {
+      // Fallback to admin keypair as single oracle
+      this.oracleKeypairs = [this.adminKeypair];
+    }
   }
 
   /**
    * Submit an attestation to the oracle contract
    * @param marketId - The ID of the market (BytesN<32>)
    * @param outcome - The outcome being attested (0 or 1)
-   * @returns Transaction hash
+   * @param oracleIndex - Index to select which oracle keypair to use
+   * @returns Transaction hash and the oracle public key used
    */
   async submitAttestation(
     marketId: string,
-    outcome: number
+    outcome: number,
+    oracleIndex: number = 0
   ): Promise<AttestationResult> {
     if (!this.oracleContractId) {
       throw new Error('Oracle contract address not configured');
     }
-    if (!this.adminKeypair) {
-      throw new Error(
-        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
-      );
+
+    const signerCount = this.oracleKeypairs.length;
+    if (signerCount === 0) {
+      throw new Error('No oracle secrets configured');
     }
+    const signer = this.oracleKeypairs[oracleIndex % signerCount];
 
     try {
       const contract = new Contract(this.oracleContractId);
       const sourceAccount = await this.rpcServer.getAccount(
-        this.adminKeypair.publicKey()
+        signer.publicKey()
       );
 
       // marketId is hex string, convert to Buffer
@@ -69,7 +82,7 @@ export class OracleService extends BaseBlockchainService {
 
       const preparedTransaction =
         await this.rpcServer.prepareTransaction(builtTransaction);
-      preparedTransaction.sign(this.adminKeypair);
+      preparedTransaction.sign(signer);
 
       const response =
         await this.rpcServer.sendTransaction(preparedTransaction);
@@ -80,8 +93,9 @@ export class OracleService extends BaseBlockchainService {
         await this.waitForTransaction(txHash, 'submitAttestation', {
           marketId,
           outcome,
+          oraclePublicKey: signer.publicKey(),
         });
-        return { txHash };
+        return { txHash, oraclePublicKey: signer.publicKey() };
       } else {
         throw new Error(`Transaction failed: ${response.status}`);
       }

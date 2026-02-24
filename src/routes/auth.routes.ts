@@ -6,6 +6,13 @@ import {
   challengeRateLimiter,
   refreshRateLimiter,
 } from '../middleware/rateLimit.middleware.js';
+import { validate } from '../middleware/validation.middleware.js';
+import {
+  challengeBody,
+  loginBody,
+  refreshBody,
+  logoutBody,
+} from '../schemas/validation.schemas.js';
 
 const router: Router = Router();
 
@@ -40,8 +47,11 @@ const router: Router = Router();
  *       429:
  *         $ref: '#/components/responses/TooManyRequests'
  */
-router.post('/challenge', challengeRateLimiter, (req, res) =>
-  authController.challenge(req, res)
+router.post(
+  '/challenge',
+  challengeRateLimiter,
+  validate({ body: challengeBody }),
+  (req, res) => authController.challenge(req, res)
 );
 
 /**
@@ -77,8 +87,11 @@ router.post('/challenge', challengeRateLimiter, (req, res) =>
  *       429:
  *         $ref: '#/components/responses/TooManyRequests'
  */
-router.post('/login', authRateLimiter, (req, res) =>
-  authController.login(req, res)
+router.post(
+  '/login',
+  authRateLimiter,
+  validate({ body: loginBody }),
+  (req, res) => authController.login(req, res)
 );
 
 /**
@@ -125,8 +138,11 @@ router.post('/login', authRateLimiter, (req, res) =>
  *       429:
  *         $ref: '#/components/responses/TooManyRequests'
  */
-router.post('/refresh', refreshRateLimiter, (req, res) =>
-  authController.refresh(req, res)
+router.post(
+  '/refresh',
+  refreshRateLimiter,
+  validate({ body: refreshBody }),
+  (req, res) => authController.refresh(req, res)
 );
 
 /**
@@ -164,7 +180,9 @@ router.post('/refresh', refreshRateLimiter, (req, res) =>
  *       400:
  *         $ref: '#/components/responses/BadRequest'
  */
-router.post('/logout', (req, res) => authController.logout(req, res));
+router.post('/logout', validate({ body: logoutBody }), (req, res) =>
+  authController.logout(req, res)
+);
 
 /**
  * @swagger

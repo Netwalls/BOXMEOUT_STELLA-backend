@@ -11,6 +11,8 @@ import oracleRoutes from './routes/oracle.js';
 import predictionRoutes from './routes/predictions.js';
 import tradingRoutes from './routes/trading.js';
 import treasuryRoutes from './routes/treasury.routes.js';
+import referralsRoutes from './routes/referrals.routes.js';
+import leaderboardRoutes from './routes/leaderboard.routes.js';
 
 // Import Redis initialization
 import {
@@ -46,6 +48,9 @@ import {
 
 // Import Swagger setup
 import { setupSwagger } from './config/swagger.js';
+
+// Import Cron initialization
+import { cronService } from './services/cron.service.js';
 
 // Initialize Express app
 const app: express.Express = express();
@@ -203,9 +208,11 @@ app.use('/api/markets', tradingRoutes);
 // Treasury routes
 app.use('/api/treasury', treasuryRoutes);
 
-// TODO: Add other routes as they are implemented
-// app.use('/api/users', userRoutes);
-// app.use('/api/leaderboard', leaderboardRoutes);
+// Referral routes
+app.use('/api/referrals', referralsRoutes);
+
+// Leaderboard routes
+app.use('/api/leaderboard', leaderboardRoutes);
 
 // =============================================================================
 // ERROR HANDLING - UPDATED WITH NEW ERROR HANDLER
@@ -230,6 +237,9 @@ async function startServer(): Promise<void> {
     // TODO: Initialize Prisma/Database connection
     // await prisma.$connect();
     // logger.info('Database connected');
+
+    // Initialize Cron Service
+    await cronService.initialize();
 
     // Start HTTP server
     app.listen(PORT, () => {

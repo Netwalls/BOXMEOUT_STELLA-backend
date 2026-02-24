@@ -4,6 +4,12 @@
 import { Router } from 'express';
 import { marketsController } from '../controllers/markets.controller.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.middleware.js';
+import { validate } from '../middleware/validation.middleware.js';
+import {
+  createMarketBody,
+  createPoolBody,
+  uuidParam,
+} from '../schemas/validation.schemas.js';
 
 const router: Router = Router();
 
@@ -42,8 +48,11 @@ const router: Router = Router();
  *       429:
  *         $ref: '#/components/responses/TooManyRequests'
  */
-router.post('/', requireAuth, (req, res) =>
-  marketsController.createMarket(req, res)
+router.post(
+  '/',
+  requireAuth,
+  validate({ body: createMarketBody }),
+  (req, res) => marketsController.createMarket(req, res)
 );
 
 /**
@@ -130,7 +139,7 @@ router.get('/', optionalAuth, (req, res) =>
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.get('/:id', optionalAuth, (req, res) =>
+router.get('/:id', optionalAuth, validate({ params: uuidParam }), (req, res) =>
   marketsController.getMarketDetails(req, res)
 );
 
@@ -183,8 +192,11 @@ router.get('/:id', optionalAuth, (req, res) =>
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post('/:id/pool', requireAuth, (req, res) =>
-  marketsController.createPool(req, res)
+router.post(
+  '/:id/pool',
+  requireAuth,
+  validate({ params: uuidParam, body: createPoolBody }),
+  (req, res) => marketsController.createPool(req, res)
 );
 
 export default router;

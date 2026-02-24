@@ -5,13 +5,13 @@ import {
   Contract,
   rpc,
   TransactionBuilder,
-  Networks,
   BASE_FEE,
-  Keypair,
   nativeToScVal,
   scValToNative,
   xdr,
+  Keypair,
 } from '@stellar/stellar-sdk';
+import { BaseBlockchainService } from './base.js';
 import { logger } from '../../utils/logger.js';
 
 interface BuySharesParams {
@@ -64,49 +64,12 @@ interface CreatePoolResult {
   odds: { yes: number; no: number };
 }
 
-export class AmmService {
-  private readonly rpcServer: rpc.Server;
+export class AmmService extends BaseBlockchainService {
   private readonly ammContractId: string;
-  private readonly networkPassphrase: string;
-  private readonly adminKeypair?: Keypair; // Optional - only needed for write operations
 
   constructor() {
-    const rpcUrl =
-      process.env.STELLAR_SOROBAN_RPC_URL ||
-      'https://soroban-testnet.stellar.org';
-    const network = process.env.STELLAR_NETWORK || 'testnet';
-
-    this.rpcServer = new rpc.Server(rpcUrl, {
-      allowHttp: rpcUrl.includes('localhost'),
-    });
+    super('AmmService');
     this.ammContractId = process.env.AMM_CONTRACT_ADDRESS || '';
-    this.networkPassphrase =
-      network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-
-    // Admin keypair for signing contract calls
-    const adminSecret = process.env.ADMIN_WALLET_SECRET;
-    if (adminSecret) {
-      try {
-        this.adminKeypair = Keypair.fromSecret(adminSecret);
-      } catch (error) {
-        logger.warn('Invalid ADMIN_WALLET_SECRET for AMM service');
-      }
-    }
-
-    if (!this.adminKeypair) {
-      // In development/testnet, generate a random keypair if not provided (prevents startup crash)
-      if (process.env.NODE_ENV !== 'production') {
-        if (!adminSecret) {
-          console.warn(
-            'ADMIN_WALLET_SECRET not configured, using random keypair for AMM service (Warning: No funds)'
-          );
-        }
-        this.adminKeypair = Keypair.random();
-      } else {
-        // In production, if strictly required we should fail, but leaving undefined is also handled by specific methods checks
-        if (!adminSecret) console.warn('ADMIN_WALLET_SECRET not configured');
-      }
-    }
   }
 
   /**
@@ -138,7 +101,10 @@ export class AmmService {
         .addOperation(
           contract.call(
             'buy_shares',
-            nativeToScVal(params.marketId, { type: 'string' }),
+            nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
             nativeToScVal(params.outcome, { type: 'u32' }),
             nativeToScVal(params.amountUsdc, { type: 'i128' }),
             nativeToScVal(params.minShares, { type: 'i128' })
@@ -160,7 +126,12 @@ export class AmmService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
-        const result = await this.waitForTransaction(txHash);
+        // Use unified retry logic from BaseBlockchainService
+        const result = await this.waitForTransaction(
+          txHash,
+          'buyShares',
+          params
+        );
 
         if (result.status === 'SUCCESS') {
           // Extract result from contract return value
@@ -182,7 +153,7 @@ export class AmmService {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
     } catch (error) {
-      console.error('AMM.buy_shares() error:', error);
+      logger.error('AMM.buy_shares() error', { error });
       throw new Error(
         `Failed to buy shares: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -218,7 +189,10 @@ export class AmmService {
         .addOperation(
           contract.call(
             'sell_shares',
-            nativeToScVal(params.marketId, { type: 'string' }),
+            nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
             nativeToScVal(params.outcome, { type: 'u32' }),
             nativeToScVal(params.shares, { type: 'i128' }),
             nativeToScVal(params.minPayout, { type: 'i128' })
@@ -240,7 +214,12 @@ export class AmmService {
 
       if (response.status === 'PENDING') {
         const txHash = response.hash;
-        const result = await this.waitForTransaction(txHash);
+        // Use unified retry logic from BaseBlockchainService
+        const result = await this.waitForTransaction(
+          txHash,
+          'sellShares',
+          params
+        );
 
         if (result.status === 'SUCCESS') {
           // Extract result from contract return value
@@ -262,7 +241,7 @@ export class AmmService {
         throw new Error(`Unexpected response status: ${response.status}`);
       }
     } catch (error) {
-      console.error('AMM.sell_shares() error:', error);
+      logger.error('AMM.sell_shares() error', { error });
       throw new Error(
         `Failed to sell shares: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -282,7 +261,6 @@ export class AmmService {
     try {
       const contract = new Contract(this.ammContractId);
       // For read-only calls, any source account works.
-      // If adminKeypair is available, use it. Else random.
       const accountKey =
         this.adminKeypair?.publicKey() || Keypair.random().publicKey();
 
@@ -290,15 +268,12 @@ export class AmmService {
       try {
         sourceAccount = await this.rpcServer.getAccount(accountKey);
       } catch (e) {
-        // If we can't fetch the account (e.g. random key not funded), we can try to use a dummy account
-        // but simulateTransaction usually requires a valid sequence number.
-        // If in dev and "random" key was generated in constructor, it won't be on chain unless funded.
-        // This might be tricky. Let's assume if it fails we can't simulate easily.
-        console.warn(
-          'Could not load source account for getOdds simulation:',
-          e
+        logger.warn(
+          'Could not load source account for getOdds simulation, using random keypair fallback'
         );
-        throw e;
+        sourceAccount = await this.rpcServer.getAccount(
+          Keypair.random().publicKey()
+        );
       }
 
       const builtTransaction = new TransactionBuilder(sourceAccount, {
@@ -306,7 +281,10 @@ export class AmmService {
         networkPassphrase: this.networkPassphrase,
       })
         .addOperation(
-          contract.call('get_odds', nativeToScVal(marketId, { type: 'string' }))
+          contract.call(
+            'get_odds',
+            nativeToScVal(Buffer.from(marketId.replace(/^0x/, ''), 'hex'))
+          )
         )
         .setTimeout(30)
         .build();
@@ -321,12 +299,24 @@ export class AmmService {
           throw new Error('No return value from simulation');
         }
 
-        return this.parseOddsResult(result);
+        // Fetch pool state for liquidity info
+        const { reserves } = await this.getPoolState(marketId);
+        const yesLiquidity = Number(reserves.yes);
+        const noLiquidity = Number(reserves.no);
+
+        const odds = this.parseOddsResult(result);
+
+        return {
+          ...odds,
+          yesLiquidity,
+          noLiquidity,
+          totalLiquidity: yesLiquidity + noLiquidity,
+        };
       }
 
       throw new Error('Failed to get market odds');
     } catch (error) {
-      console.error('Error getting market odds:', error);
+      logger.error('Error getting market odds', { error });
       throw new Error(
         `Failed to get odds: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -346,47 +336,63 @@ export class AmmService {
       );
     }
 
-    const contract = new Contract(this.ammContractId);
-    const sourceAccount = await this.rpcServer.getAccount(
-      this.adminKeypair.publicKey()
-    );
+    try {
+      const contract = new Contract(this.ammContractId);
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
 
-    const builtTx = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        contract.call(
-          'create_pool',
-          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
-          nativeToScVal(params.initialLiquidity, { type: 'i128' })
+      const builtTx = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'create_pool',
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
+            nativeToScVal(params.initialLiquidity, { type: 'i128' })
+          )
         )
-      )
-      .setTimeout(30)
-      .build();
+        .setTimeout(30)
+        .build();
 
-    const prepared = await this.rpcServer.prepareTransaction(builtTx);
-    prepared.sign(this.adminKeypair);
+      const prepared = await this.rpcServer.prepareTransaction(builtTx);
+      prepared.sign(this.adminKeypair);
 
-    const sendResponse = await this.rpcServer.sendTransaction(prepared);
+      const sendResponse = await this.rpcServer.sendTransaction(prepared);
 
-    if (sendResponse.status !== 'PENDING') {
-      throw new Error(`Transaction submission failed: ${sendResponse.status}`);
+      if (sendResponse.status === 'PENDING') {
+        const txHash = sendResponse.hash;
+        const result = await this.waitForTransaction(
+          txHash,
+          'createPool',
+          params
+        );
+
+        if (result.status === 'SUCCESS') {
+          const { reserves, odds } = await this.getPoolState(params.marketId);
+
+          return {
+            txHash,
+            reserves,
+            odds,
+          };
+        } else {
+          throw new Error(`Transaction failed: ${result.status}`);
+        }
+      } else {
+        throw new Error(
+          `Transaction submission failed: ${sendResponse.status}`
+        );
+      }
+    } catch (error) {
+      logger.error('AMM.create_pool() error', { error });
+      throw new Error(
+        `Failed to create pool: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
-
-    const txResult = await this.waitForTransaction(sendResponse.hash);
-
-    if (txResult.status !== 'SUCCESS') {
-      throw new Error('Transaction execution failed');
-    }
-
-    const { reserves, odds } = await this.getPoolState(params.marketId);
-
-    return {
-      txHash: sendResponse.hash,
-      reserves,
-      odds,
-    };
   }
 
   /**
@@ -398,7 +404,6 @@ export class AmmService {
   }> {
     const contract = new Contract(this.ammContractId);
 
-    // For read-only calls, separate handling
     const accountKey =
       this.adminKeypair?.publicKey() || Keypair.random().publicKey();
 
@@ -406,11 +411,12 @@ export class AmmService {
     try {
       sourceAccount = await this.rpcServer.getAccount(accountKey);
     } catch (e) {
-      console.warn(
-        'Could not load source account for getPoolState simulation:',
-        e
+      logger.warn(
+        'Could not load source account for getPoolState simulation, using random keypair fallback'
       );
-      throw e;
+      sourceAccount = await this.rpcServer.getAccount(
+        Keypair.random().publicKey()
+      );
     }
 
     const builtTx = new TransactionBuilder(sourceAccount, {
@@ -447,52 +453,6 @@ export class AmmService {
   }
 
   /**
-   * Wait for transaction to be confirmed
-   * @param txHash - Transaction hash
-   * @param maxRetries - Maximum number of retries
-   * @returns Transaction result
-   */
-  private async waitForTransaction(
-    txHash: string,
-    maxRetries: number = 10
-  ): Promise<any> {
-    let retries = 0;
-
-    while (retries < maxRetries) {
-      try {
-        const txResponse = await this.rpcServer.getTransaction(txHash);
-
-        if (txResponse.status === 'NOT_FOUND') {
-          // Transaction not yet processed, wait and retry
-          await this.sleep(2000);
-          retries++;
-          continue;
-        }
-
-        if (txResponse.status === 'SUCCESS') {
-          return txResponse;
-        }
-
-        if (txResponse.status === 'FAILED') {
-          throw new Error('Transaction failed on blockchain');
-        }
-
-        // Other status, wait and retry
-        await this.sleep(2000);
-        retries++;
-      } catch (error) {
-        if (retries >= maxRetries - 1) {
-          throw error;
-        }
-        await this.sleep(2000);
-        retries++;
-      }
-    }
-
-    throw new Error('Transaction confirmation timeout');
-  }
-
-  /**
    * Parse buy_shares contract return value
    * @param returnValue - Contract return value
    * @returns Parsed buy result
@@ -517,7 +477,7 @@ export class AmmService {
         feeAmount: Number(result.fee_amount || result.feeAmount || 0),
       };
     } catch (error) {
-      console.error('Error parsing buy shares result:', error);
+      logger.error('Error parsing buy shares result', { error });
       throw new Error('Failed to parse contract response');
     }
   }
@@ -544,7 +504,7 @@ export class AmmService {
         feeAmount: Number(result.fee_amount || result.feeAmount || 0),
       };
     } catch (error) {
-      console.error('Error parsing sell shares result:', error);
+      logger.error('Error parsing sell shares result', { error });
       throw new Error('Failed to parse contract response');
     }
   }
@@ -556,17 +516,23 @@ export class AmmService {
    */
   private parseOddsResult(returnValue: xdr.ScVal): MarketOdds {
     try {
-      // Expected return format: { yes_odds, no_odds, yes_liquidity, no_liquidity }
       const result = scValToNative(returnValue);
+      let yesOdds = 0.5;
+      let noOdds = 0.5;
+      let yesLiquidity = 0;
+      let noLiquidity = 0;
 
-      const yesOdds = Number(result.yes_odds || result.yesOdds || 0.5);
-      const noOdds = Number(result.no_odds || result.noOdds || 0.5);
-      const yesLiquidity = Number(
-        result.yes_liquidity || result.yesLiquidity || 0
-      );
-      const noLiquidity = Number(
-        result.no_liquidity || result.noLiquidity || 0
-      );
+      if (Array.isArray(result)) {
+        // Handle basis points array [yes_bp, no_bp]
+        yesOdds = Number(result[0]) / 10000;
+        noOdds = Number(result[1]) / 10000;
+      } else {
+        // Expected return format: { yes_odds, no_odds, yes_liquidity, no_liquidity }
+        yesOdds = Number(result.yes_odds || result.yesOdds || 0.5);
+        noOdds = Number(result.no_odds || result.noOdds || 0.5);
+        yesLiquidity = Number(result.yes_liquidity || result.yesLiquidity || 0);
+        noLiquidity = Number(result.no_liquidity || result.noLiquidity || 0);
+      }
 
       return {
         yesOdds,
@@ -578,13 +544,9 @@ export class AmmService {
         totalLiquidity: yesLiquidity + noLiquidity,
       };
     } catch (error) {
-      console.error('Error parsing odds result:', error);
+      logger.error('Error parsing odds result', { error });
       throw new Error('Failed to parse odds response');
     }
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

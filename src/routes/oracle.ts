@@ -4,6 +4,8 @@
 import { Router } from 'express';
 import { oracleController } from '../controllers/oracle.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import { validate } from '../middleware/validation.middleware.js';
+import { uuidParam, attestBody } from '../schemas/validation.schemas.js';
 
 const router: Router = Router();
 
@@ -61,8 +63,11 @@ const router: Router = Router();
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post('/:id/attest', requireAuth, (req, res) =>
-  oracleController.attestMarket(req, res)
+router.post(
+  '/:id/attest',
+  requireAuth,
+  validate({ params: uuidParam, body: attestBody }),
+  (req, res) => oracleController.attestMarket(req, res)
 );
 
 /**
@@ -114,8 +119,11 @@ router.post('/:id/attest', requireAuth, (req, res) =>
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post('/:id/resolve', requireAuth, (req, res) =>
-  oracleController.resolveMarket(req, res)
+router.post(
+  '/:id/resolve',
+  requireAuth,
+  validate({ params: uuidParam }),
+  (req, res) => oracleController.resolveMarket(req, res)
 );
 
 /**
@@ -158,8 +166,11 @@ router.post('/:id/resolve', requireAuth, (req, res) =>
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post('/:id/claim', requireAuth, (req, res) =>
-  oracleController.claimWinnings(req, res)
+router.post(
+  '/:id/claim',
+  requireAuth,
+  validate({ params: uuidParam }),
+  (req, res) => oracleController.claimWinnings(req, res)
 );
 
 export default router;

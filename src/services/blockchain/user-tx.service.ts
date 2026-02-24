@@ -85,9 +85,7 @@ export class UserSignedTransactionService {
    * Decode a base64 XDR string into a Transaction object.
    * Throws if the XDR is malformed.
    */
-  decodeSignedXdr(
-    signedXdrBase64: string
-  ): Transaction | FeeBumpTransaction {
+  decodeSignedXdr(signedXdrBase64: string): Transaction | FeeBumpTransaction {
     try {
       return new Transaction(signedXdrBase64, this.networkPassphrase);
     } catch {
@@ -125,7 +123,9 @@ export class UserSignedTransactionService {
 
     // Step 3: Submit
     try {
-      const sendResponse = await this.rpcServer.sendTransaction(tx as Transaction);
+      const sendResponse = await this.rpcServer.sendTransaction(
+        tx as Transaction
+      );
 
       if (sendResponse.status === 'ERROR') {
         throw new Error(
@@ -134,9 +134,7 @@ export class UserSignedTransactionService {
       }
 
       if (sendResponse.status !== 'PENDING') {
-        throw new Error(
-          `Unexpected submission status: ${sendResponse.status}`
-        );
+        throw new Error(`Unexpected submission status: ${sendResponse.status}`);
       }
 
       const txHash = sendResponse.hash;

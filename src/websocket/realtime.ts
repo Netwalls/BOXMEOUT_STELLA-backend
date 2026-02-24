@@ -221,7 +221,7 @@ export function initializeSocketIO(
   const rateLimits = new Map<string, RateLimitTracker>();
 
   // JWT authentication middleware
-  io.use(async (socket, next) => {
+  io.use(async (socket: Socket, next: (err?: Error) => void) => {
     try {
       const token = socket.handshake.auth.token;
 
@@ -342,7 +342,7 @@ export function initializeSocketIO(
     const now = Date.now();
     const staleThreshold = 90000; // 90 seconds
 
-    io.sockets.sockets.forEach((socket) => {
+    io.sockets.sockets.forEach((socket: Socket) => {
       const socketData = socket.data as SocketData;
       if (now - socketData.lastHeartbeat > staleThreshold) {
         logger.warn('Disconnecting stale socket', {

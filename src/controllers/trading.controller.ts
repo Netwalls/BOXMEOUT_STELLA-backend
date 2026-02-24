@@ -27,7 +27,9 @@ export class TradingController {
 
       // Validation
       if (outcome === undefined || !amount) {
-        res.status(400).json({ success: false, error: 'Missing outcome or amount' });
+        res
+          .status(400)
+          .json({ success: false, error: 'Missing outcome or amount' });
         return;
       }
 
@@ -178,7 +180,9 @@ export class TradingController {
       const { outcome, shares, minPayout } = req.body;
 
       if (outcome === undefined || !shares) {
-        res.status(400).json({ success: false, error: 'Missing outcome or shares' });
+        res
+          .status(400)
+          .json({ success: false, error: 'Missing outcome or shares' });
         return;
       }
 
@@ -328,7 +332,9 @@ export class TradingController {
       const { signedXdr, action } = req.body;
 
       if (!signedXdr || !action) {
-        res.status(400).json({ success: false, error: 'Missing signedXdr or action' });
+        res
+          .status(400)
+          .json({ success: false, error: 'Missing signedXdr or action' });
         return;
       }
 

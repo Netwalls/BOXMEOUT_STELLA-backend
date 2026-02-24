@@ -208,6 +208,12 @@ app.use('/api/markets', tradingRoutes);
 // Treasury routes
 app.use('/api/treasury', treasuryRoutes);
 
+// Trading routes (user-signed)
+app.use('/api', tradingRoutes);
+
+// TODO: Add other routes as they are implemented
+// app.use('/api/users', userRoutes);
+// app.use('/api/leaderboard', leaderboardRoutes);
 // Referral routes
 app.use('/api/referrals', referralsRoutes);
 

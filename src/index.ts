@@ -13,6 +13,7 @@ import tradingRoutes from './routes/trading.js';
 import treasuryRoutes from './routes/treasury.routes.js';
 import referralsRoutes from './routes/referrals.routes.js';
 import leaderboardRoutes from './routes/leaderboard.routes.js';
+import indexerRoutes from './routes/indexer.routes.js';
 
 // Import Redis initialization
 import {
@@ -51,6 +52,9 @@ import { setupSwagger } from './config/swagger.js';
 
 // Import Cron initialization
 import { cronService } from './services/cron.service.js';
+
+// Import Indexer Service
+import { indexerService } from './services/blockchain/indexer.js';
 
 // Initialize Express app
 const app: express.Express = express();
@@ -214,6 +218,9 @@ app.use('/api/referrals', referralsRoutes);
 // Leaderboard routes
 app.use('/api/leaderboard', leaderboardRoutes);
 
+// Indexer routes (admin only)
+app.use('/api/indexer', indexerRoutes);
+
 // =============================================================================
 // ERROR HANDLING - UPDATED WITH NEW ERROR HANDLER
 // =============================================================================
@@ -241,6 +248,12 @@ async function startServer(): Promise<void> {
     // Initialize Cron Service
     await cronService.initialize();
 
+    // Start Blockchain Indexer Service (if enabled)
+    if (process.env.ENABLE_INDEXER !== 'false') {
+      logger.info('Starting blockchain indexer service');
+      await indexerService.start();
+    }
+
     // Start HTTP server
     app.listen(PORT, () => {
       logger.info('BoxMeOut Stella Backend API started', {
@@ -265,6 +278,12 @@ async function gracefulShutdown(signal: string): Promise<void> {
   logger.info(`${signal} received. Shutting down gracefully`);
 
   try {
+    // Stop Blockchain Indexer
+    if (process.env.ENABLE_INDEXER !== 'false') {
+      logger.info('Stopping blockchain indexer');
+      await indexerService.stop();
+    }
+
     // Close Redis connection
     await closeRedisConnection();
 

@@ -1,24 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../types/auth.types.js';
 import { TreasuryService } from '../services/treasury.service.js';
-import { z } from 'zod';
-
-const distributeLeaderboardSchema = z.object({
-  recipients: z
-    .array(
-      z.object({
-        address: z.string().min(56).max(56),
-        amount: z.string().regex(/^\d+$/),
-      })
-    )
-    .min(1),
-});
-
-const distributeCreatorSchema = z.object({
-  marketId: z.string(),
-  creatorAddress: z.string().min(56).max(56),
-  amount: z.string().regex(/^\d+$/),
-});
+import { logger } from '../utils/logger.js';
 
 export class TreasuryController {
   private treasuryService: TreasuryService;
@@ -36,7 +19,7 @@ export class TreasuryController {
         data: balances,
       });
     } catch (error) {
-      console.error('Get balances error:', error);
+      (req.log || logger).error('Get balances error', { error });
       res.status(500).json({
         success: false,
         error: {
@@ -61,21 +44,9 @@ export class TreasuryController {
         return;
       }
 
-      const validation = distributeLeaderboardSchema.safeParse(req.body);
-      if (!validation.success) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid request data',
-            details: validation.error.errors,
-          },
-        });
-        return;
-      }
-
+      // req.body is already validated by middleware
       const result = await this.treasuryService.distributeLeaderboard(
-        validation.data.recipients,
+        req.body.recipients,
         req.user.userId
       );
 
@@ -84,7 +55,7 @@ export class TreasuryController {
         data: result,
       });
     } catch (error) {
-      console.error('Distribute leaderboard error:', error);
+      (req.log || logger).error('Distribute leaderboard error', { error });
       res.status(500).json({
         success: false,
         error: {
@@ -109,20 +80,8 @@ export class TreasuryController {
         return;
       }
 
-      const validation = distributeCreatorSchema.safeParse(req.body);
-      if (!validation.success) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid request data',
-            details: validation.error.errors,
-          },
-        });
-        return;
-      }
-
-      const { marketId, creatorAddress, amount } = validation.data;
+      // req.body is already validated by middleware
+      const { marketId, creatorAddress, amount } = req.body;
 
       const result = await this.treasuryService.distributeCreator(
         marketId,
@@ -136,7 +95,7 @@ export class TreasuryController {
         data: result,
       });
     } catch (error) {
-      console.error('Distribute creator error:', error);
+      (req.log || logger).error('Distribute creator error', { error });
       res.status(500).json({
         success: false,
         error: {

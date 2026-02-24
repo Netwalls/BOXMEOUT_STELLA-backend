@@ -8,6 +8,7 @@ import {
   RefreshRequest,
 } from '../types/auth.types.js';
 import { verifyRefreshToken } from '../utils/jwt.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Authentication Controller
@@ -26,17 +27,6 @@ export class AuthController {
   async challenge(req: Request, res: Response): Promise<void> {
     try {
       const { publicKey } = req.body as ChallengeRequest;
-
-      if (!publicKey) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'MISSING_PUBLIC_KEY',
-            message: 'publicKey is required',
-          },
-        });
-        return;
-      }
 
       const challenge = await authService.generateChallenge(publicKey);
 
@@ -61,22 +51,6 @@ export class AuthController {
   async login(req: Request, res: Response): Promise<void> {
     try {
       const loginRequest = req.body as LoginRequest;
-
-      // Validate required fields
-      if (
-        !loginRequest.publicKey ||
-        !loginRequest.signature ||
-        !loginRequest.nonce
-      ) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'MISSING_FIELDS',
-            message: 'publicKey, signature, and nonce are required',
-          },
-        });
-        return;
-      }
 
       const metadata = {
         userAgent: req.headers['user-agent'],
@@ -103,17 +77,6 @@ export class AuthController {
     try {
       const { refreshToken } = req.body as RefreshRequest;
 
-      if (!refreshToken) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'MISSING_REFRESH_TOKEN',
-            message: 'refreshToken is required',
-          },
-        });
-        return;
-      }
-
       const metadata = {
         userAgent: req.headers['user-agent'],
         ipAddress: req.ip,
@@ -138,17 +101,6 @@ export class AuthController {
   async logout(req: Request, res: Response): Promise<void> {
     try {
       const { refreshToken } = req.body;
-
-      if (!refreshToken) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'MISSING_REFRESH_TOKEN',
-            message: 'refreshToken is required for logout',
-          },
-        });
-        return;
-      }
 
       // Decode refresh token to get tokenId and userId
       const payload = verifyRefreshToken(refreshToken);
@@ -278,8 +230,8 @@ export class AuthController {
       return;
     }
 
-    // Log unexpected errors
-    console.error('Auth controller error:', error);
+    // Log unexpected errors (handleError has no req context)
+    logger.error('Auth controller error', { error });
 
     res.status(500).json({
       success: false,

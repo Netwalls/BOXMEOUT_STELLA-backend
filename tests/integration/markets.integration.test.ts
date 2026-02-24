@@ -13,6 +13,21 @@ vi.mock('../../src/utils/jwt.js', () => ({
         userId: 'test-user-id',
         publicKey: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
         tier: 'BEGINNER',
+        type: 'access',
+    }),
+}));
+
+// Mock admin middleware
+vi.mock('../../src/middleware/admin.middleware.js', () => ({
+    requireAdmin: vi.fn((req, res, next) => {
+        // By default, let's say test user is admin unless overridden
+        if (req.user && req.user.publicKey === 'GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY') {
+            return res.status(403).json({
+                success: false,
+                error: { code: 'FORBIDDEN', message: 'Admin access required' },
+            });
+        }
+        next();
     }),
 }));
 
@@ -23,6 +38,9 @@ vi.mock('../../src/services/blockchain/factory.js', () => ({
             marketId: 'mock-market-id-123456',
             txHash: 'mock-tx-hash-abc123',
             contractAddress: 'mock-contract-address',
+        }),
+        deactivateMarket: vi.fn().mockResolvedValue({
+            txHash: 'mock-tx-hash-deactivate456',
         }),
         getMarketCount: vi.fn().mockResolvedValue(10),
     },
@@ -52,6 +70,8 @@ vi.mock('../../src/database/prisma.js', () => ({
             })),
             findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn(),
+            findById: vi.fn(), // We might need this for the service
+            update: vi.fn(),
             findByContractAddress: vi.fn(),
         },
     },
@@ -137,8 +157,8 @@ describe('POST /api/markets - Create Market', () => {
             .expect(400);
 
         expect(response.body.success).toBe(false);
-        expect(response.body.error.code).toBe('INVALID_TIMESTAMP');
-        expect(response.body.error.message).toContain('future');
+        expect(response.body.error.code).toBe('VALIDATION_ERROR');
+        expect(response.body.error.message).toContain('Validation failed');
 
         // Blockchain service should not be called
         expect(factoryService.createMarket).not.toHaveBeenCalled();
@@ -165,7 +185,7 @@ describe('POST /api/markets - Create Market', () => {
             .expect(400);
 
         expect(response.body.success).toBe(false);
-        expect(response.body.error.code).toBe('INVALID_TIMESTAMP');
+        expect(response.body.error.code).toBe('VALIDATION_ERROR');
         expect(factoryService.createMarket).not.toHaveBeenCalled();
     });
 
@@ -357,5 +377,85 @@ describe('GET /api/markets - List Markets', () => {
         expect(response.body.success).toBe(true);
         expect(response.body.pagination.skip).toBe(0);
         expect(response.body.pagination.take).toBe(10);
+    });
+});
+
+describe('PATCH /api/markets/:id/deactivate - Deactivate a market', () => {
+    let authToken: string;
+
+    beforeAll(() => {
+        authToken = 'mock-jwt-token';
+    });
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('should deactivate a market successfully when admin', async () => {
+        const marketId = '12345678-1234-1234-1234-123456789012';
+
+        const { MarketRepository } = await import('../../src/repositories/market.repository.js');
+        vi.spyOn(MarketRepository.prototype, 'findById').mockResolvedValue({
+            id: marketId,
+            contractAddress: 'mock-contract-address',
+            status: 'OPEN',
+            // other fields are not strictly necessary for this test given our service impl
+        } as any);
+
+        vi.spyOn(MarketRepository.prototype, 'updateMarketStatus').mockResolvedValue({
+            id: marketId,
+            status: 'CANCELLED',
+        } as any);
+
+        const response = await request(app)
+            .patch(`/api/markets/${marketId}/deactivate`)
+            .set('Authorization', `Bearer ${authToken}`)
+            .expect(200);
+
+        expect(response.body.success).toBe(true);
+        expect(response.body.data.status).toBe('CANCELLED');
+
+        expect(factoryService.deactivateMarket).toHaveBeenCalledTimes(1);
+        expect(factoryService.deactivateMarket).toHaveBeenCalledWith('mock-contract-address');
+    });
+
+    it('should return 403 when not an admin user', async () => {
+        const marketId = '12345678-1234-1234-1234-123456789012';
+
+        // Mock verifyAccessToken to return a non-admin public key for this test
+        const { verifyAccessToken } = await import('../../src/utils/jwt.js');
+        vi.mocked(verifyAccessToken).mockReturnValueOnce({
+            userId: 'non-admin-user',
+            publicKey: 'GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY',
+            tier: 'BEGINNER',
+            type: 'access',
+        });
+
+        const response = await request(app)
+            .patch(`/api/markets/${marketId}/deactivate`)
+            .set('Authorization', `Bearer ${authToken}`)
+            .expect(403);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.error.code).toBe('FORBIDDEN');
+
+        expect(factoryService.deactivateMarket).not.toHaveBeenCalled();
+    });
+
+    it('should return 404 when market not found', async () => {
+        const marketId = '12345678-1234-1234-1234-123456789012';
+
+        const { MarketRepository } = await import('../../src/repositories/market.repository.js');
+        vi.spyOn(MarketRepository.prototype, 'findById').mockResolvedValue(null);
+
+        const response = await request(app)
+            .patch(`/api/markets/${marketId}/deactivate`)
+            .set('Authorization', `Bearer ${authToken}`)
+            .expect(404);
+
+        expect(response.body.success).toBe(false);
+        expect(response.body.error.code).toBe('NOT_FOUND');
+
+        expect(factoryService.deactivateMarket).not.toHaveBeenCalled();
     });
 });

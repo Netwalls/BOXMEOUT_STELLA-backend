@@ -6,11 +6,7 @@ import { AuthenticatedRequest } from '../types/auth.types.js';
 import { MarketService } from '../services/market.service.js';
 import { oracleService } from '../services/blockchain/oracle.js';
 import { marketBlockchainService } from '../services/blockchain/market.js';
-import { z } from 'zod';
-
-const attestSchema = z.object({
-  outcome: z.number().min(0).max(1),
-});
+import { logger } from '../utils/logger.js';
 
 export class OracleController {
   private marketService: MarketService;
@@ -25,22 +21,55 @@ export class OracleController {
    */
   async attestMarket(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
+      // params and body are already validated by middleware
       const marketId = String(req.params.id);
-      const validation = attestSchema.safeParse(req.body);
-      if (!validation.success) {
-        res.status(400).json({ success: false, error: 'Invalid outcome' });
-        return;
-      }
-
-      // TODO: Check if user is admin/attestor
-
-      const { outcome } = validation.data;
+      const { outcome } = req.body;
       const market = await this.marketService.getMarketDetails(marketId);
+
+      const nextIndex = (market as any).attestationCount || 0;
 
       const result = await oracleService.submitAttestation(
         market.contractAddress,
-        outcome
+        outcome,
+        nextIndex
       );
+
+      // Record this individual attestation in DB
+      await this.marketService.addAttestation(
+        marketId,
+        result.oraclePublicKey,
+        outcome,
+        result.txHash
+      );
+
+      const threshold = parseInt(
+        process.env.ORACLE_CONSENSUS_THRESHOLD || '3',
+        10
+      );
+      const newCount = nextIndex + 1;
+
+      let autoResolved = false;
+      let resolutionTxHash = undefined;
+
+      // Auto-resolve when consensus threshold met
+      if (newCount >= threshold) {
+        // Double check on-chain consensus
+        const winningOutcome = await oracleService.checkConsensus(
+          market.contractAddress
+        );
+        if (winningOutcome !== null) {
+          const blockchainResult = await marketBlockchainService.resolveMarket(
+            market.contractAddress
+          );
+          await this.marketService.resolveMarket(
+            marketId,
+            winningOutcome,
+            'Oracle Consensus Auto-Resolution'
+          );
+          autoResolved = true;
+          resolutionTxHash = blockchainResult.txHash;
+        }
+      }
 
       res.json({
         success: true,
@@ -48,10 +77,13 @@ export class OracleController {
           txHash: result.txHash,
           marketId,
           outcome,
+          oraclePublicKey: result.oraclePublicKey,
+          autoResolved,
+          resolutionTxHash,
         },
       });
     } catch (error) {
-      console.error('Attest error:', error);
+      (req.log || logger).error('Attest error', { error });
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Attestation failed',
@@ -99,7 +131,7 @@ export class OracleController {
         },
       });
     } catch (error) {
-      console.error('Resolve error:', error);
+      (req.log || logger).error('Resolve error', { error });
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Resolution failed',
@@ -142,7 +174,7 @@ export class OracleController {
         },
       });
     } catch (error) {
-      console.error('Claim error:', error);
+      (req.log || logger).error('Claim error', { error });
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Claiming failed',

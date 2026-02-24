@@ -1,205 +1,409 @@
-// backend/src/websocket/realtime.ts - WebSocket Real-Time Updates
-// Socket.io event handlers for live updates
+import { Server as HttpServer } from 'http';
+import { Server as SocketIOServer, Socket } from 'socket.io';
+import { verifyAccessToken } from '../utils/jwt.js';
+import { logger } from '../utils/logger.js';
+import { AuthError } from '../types/auth.types.js';
 
-/*
-TODO: Initialize WebSocket Server
-- Create Socket.io server on same Express port
-- Setup connection authentication: verify JWT on connect
-- Setup CORS: allow frontend domain only
-- Setup namespaces: /markets, /leaderboard, /notifications
-- Enable compression for large payloads
-- Setup heartbeat: send ping every 30s, expect pong
-- Disconnect on failed authentication
-- Log all connections for monitoring
-*/
+export interface MarketOdds {
+  yes: number;
+  no: number;
+}
 
-/*
-TODO: Market Subscription Events
-- socket.on('subscribe_market', market_id)
-  - Validate market_id exists
-  - Add socket to room: `market:${market_id}`
-  - Return: { subscribed: true, market_id }
-  - Emit to room: { type: 'user_joined', count: room_size }
+export type OddsDirection = 'YES' | 'NO' | 'UNCHANGED';
 
-- socket.on('unsubscribe_market', market_id)
-  - Remove socket from room
-  - Emit to room: { type: 'user_left', count: room_size }
+export interface OddsChangedEvent {
+  type: 'odds_changed';
+  marketId: string;
+  yesOdds: number;
+  noOdds: number;
+  direction: Exclude<OddsDirection, 'UNCHANGED'>;
+  timestamp: number;
+}
 
-- socket.on('disconnect')
-  - Remove socket from all rooms
-  - Update user.last_online timestamp
-*/
+export interface RealtimeOddsBroadcasterOptions {
+  pollIntervalMs?: number;
+  significantChangeThresholdPct?: number;
+}
 
-/*
-TODO: Real-Time Odds Updates
-- Query AMM odds every 5 seconds (background job)
-- On change > 1%: emit to market subscribers
-- Emit: { type: 'odds_changed', market_id, yes_odds, no_odds, timestamp }
-- Include: volume_24h, participant_count_changed
-- Include: direction (odds_moving_yes or odds_moving_no)
-*/
+export interface SocketData {
+  userId: string;
+  publicKey: string;
+  connectedAt: number;
+  lastHeartbeat: number;
+}
 
-/*
-TODO: New Predictions Broadcast
-- When prediction committed: emit to market subscribers
-- Emit: { type: 'prediction_submitted', market_id, prediction_count_updated }
-- Don't include: predictor identity (privacy), actual prediction
-- Include: outcome_distribution (% betting YES vs NO)
+export type FetchMarketOdds = (marketId: string) => Promise<MarketOdds>;
+export type BroadcastToMarketSubscribers = (
+  marketId: string,
+  event: OddsChangedEvent
+) => Promise<void> | void;
 
-- When prediction revealed: emit
-- Emit: { type: 'prediction_revealed', market_id }
-- Update outcome_distribution for participants
-*/
+export function hasSignificantChange(
+  previousOdds: MarketOdds,
+  currentOdds: MarketOdds,
+  thresholdPct: number = 1
+): boolean {
+  const yesChange = relativePercentChange(previousOdds.yes, currentOdds.yes);
+  const noChange = relativePercentChange(previousOdds.no, currentOdds.no);
+  return Math.max(yesChange, noChange) > thresholdPct;
+}
 
-/*
-TODO: Trade Activity Updates
-- When shares bought/sold: emit to market subscribers
-- Emit: { type: 'trade_executed', market_id, outcome, quantity, price, timestamp }
-- Include: volume_update_24h, largest_trade_flag (if volume > $1000)
-- Track top traders on market (anonymized)
-*/
+export function getDirection(
+  previousOdds: MarketOdds,
+  currentOdds: MarketOdds
+): OddsDirection {
+  if (currentOdds.yes > previousOdds.yes) {
+    return 'YES';
+  }
+  if (currentOdds.yes < previousOdds.yes) {
+    return 'NO';
+  }
+  return 'UNCHANGED';
+}
 
-/*
-TODO: Market Lifecycle Events
-- When market closes: emit to subscribers
-- Emit: { type: 'market_closed', market_id, final_odds }
-- Disable further trading
+function relativePercentChange(previous: number, current: number): number {
+  if (previous === 0) {
+    return current === 0 ? 0 : Number.POSITIVE_INFINITY;
+  }
 
-- When market resolves: emit
-- Emit: { type: 'market_resolved', market_id, winning_outcome }
-- Include: winnings_to_be_distributed
-- Include: dispute_period_open (7 days)
+  return Math.abs(((current - previous) / previous) * 100);
+}
 
-- When market disputed: emit
-- Emit: { type: 'market_disputed', market_id, dispute_count }
+export class RealtimeOddsBroadcaster {
+  private readonly pollIntervalMs: number;
+  private readonly significantChangeThresholdPct: number;
+  private readonly marketSubscribers = new Map<string, Set<string>>();
+  private readonly lastPublishedOdds = new Map<string, MarketOdds>();
+  private pollTimer?: NodeJS.Timeout;
+  private pollInProgress = false;
 
-- When dispute resolved: emit
-- Emit: { type: 'dispute_resolved', market_id, final_outcome }
-*/
+  constructor(
+    private readonly fetchMarketOdds: FetchMarketOdds,
+    private readonly broadcastToMarketSubscribers: BroadcastToMarketSubscribers,
+    options: RealtimeOddsBroadcasterOptions = {}
+  ) {
+    this.pollIntervalMs = options.pollIntervalMs ?? 5000;
+    this.significantChangeThresholdPct =
+      options.significantChangeThresholdPct ?? 1;
+  }
 
-/*
-TODO: User Portfolio Updates
-- socket.on('subscribe_portfolio')
-  - Add socket to user's private room: `portfolio:${user_id}`
-  - Emit: { subscribed: true }
+  start(): void {
+    if (this.pollTimer) {
+      return;
+    }
 
-- When user's position changes: emit
-- Emit: { type: 'position_updated', market_id, shares, current_value, unrealized_pnl }
-- Frequency: on significant change only (>5% move in user's portfolio)
+    this.pollTimer = setInterval(() => {
+      void this.pollAllSubscribedMarkets();
+    }, this.pollIntervalMs);
+  }
 
-- When user claims winnings: emit
-- Emit: { type: 'winnings_claimed', amount, market_id }
-- Update balance in real-time
-*/
+  stop(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
+  }
 
-/*
-TODO: Leaderboard Updates
-- socket.on('subscribe_leaderboard', timeframe)
-  - timeframe: 'global' | 'weekly' | 'category'
-  - Add socket to: `leaderboard:${timeframe}`
-  - Emit: { subscribed: true, your_rank: X }
+  subscribe(marketId: string, subscriberId: string): void {
+    const subscribers =
+      this.marketSubscribers.get(marketId) ?? new Set<string>();
+    subscribers.add(subscriberId);
+    this.marketSubscribers.set(marketId, subscribers);
+  }
 
-- Emit rank changes: every 5 minutes or on rank change
-- Emit: { type: 'rank_changed', user_id, new_rank, old_rank, score_change }
-- Send to all leaderboard subscribers
+  unsubscribe(marketId: string, subscriberId: string): void {
+    const subscribers = this.marketSubscribers.get(marketId);
+    if (!subscribers) {
+      return;
+    }
 
-- Emit new top predictors
-- Emit: { type: 'new_top_10_member', user_id, username, rank }
+    subscribers.delete(subscriberId);
+    if (subscribers.size === 0) {
+      this.marketSubscribers.delete(marketId);
+      this.lastPublishedOdds.delete(marketId);
+    }
+  }
 
-- Emit streaks
-- Emit: { type: 'streak_updated', user_id, streak_length, streak_type }
-*/
+  getSubscriberCount(marketId: string): number {
+    return this.marketSubscribers.get(marketId)?.size ?? 0;
+  }
 
-/*
-TODO: Achievement Notifications
-- When user earns achievement: emit
-- Emit to: `portfolio:${user_id}` (private)
-- Emit: { type: 'achievement_earned', achievement_id, name, tier }
-- Include: icon_url, badge
-- Broadcast to global subscribers (limited): top tier achievements only
-*/
+  async pollAllSubscribedMarkets(): Promise<void> {
+    if (this.pollInProgress) {
+      return;
+    }
 
-/*
-TODO: System Notifications
-- Emergency maintenance: broadcast to all connected
-- Emit: { type: 'system_alert', message, severity }
+    this.pollInProgress = true;
+    try {
+      const marketIds = [...this.marketSubscribers.keys()];
+      await Promise.all(marketIds.map((marketId) => this.pollMarket(marketId)));
+    } finally {
+      this.pollInProgress = false;
+    }
+  }
 
-- Fee changes: broadcast
-- Emit: { type: 'fee_updated', new_fee_pct }
+  private async pollMarket(marketId: string): Promise<void> {
+    if (this.getSubscriberCount(marketId) === 0) {
+      return;
+    }
 
-- Oracle consensus reached: broadcast
-- Emit: { type: 'oracle_consensus', markets_affected_count }
-*/
+    try {
+      const currentOdds = await this.fetchMarketOdds(marketId);
+      const previousOdds = this.lastPublishedOdds.get(marketId);
 
-/*
-TODO: Notification Preferences
-- socket.on('set_preferences', { notification_types })
-  - notification_types: string[] = ['odds_changes', 'trades', 'achievements', ...]
-  - Store per socket connection
-  - Only emit subscribed events to this socket
+      if (!previousOdds) {
+        this.lastPublishedOdds.set(marketId, currentOdds);
+        return;
+      }
 
-- socket.on('set_mute_market', market_id)
-  - Mute updates for specific market
-  - Store in database: user.muted_markets
+      if (
+        !hasSignificantChange(
+          previousOdds,
+          currentOdds,
+          this.significantChangeThresholdPct
+        )
+      ) {
+        return;
+      }
 
-- socket.on('set_mute_user', user_id)
-  - Mute updates from specific user's trades
-*/
+      const direction = getDirection(previousOdds, currentOdds);
+      if (direction === 'UNCHANGED') {
+        return;
+      }
 
-/*
-TODO: Typing/Presence Indicators
-- socket.on('user_online')
-  - Emit to leaderboard: { type: 'user_online', user_id }
+      const event: OddsChangedEvent = {
+        type: 'odds_changed',
+        marketId,
+        yesOdds: currentOdds.yes,
+        noOdds: currentOdds.no,
+        direction,
+        timestamp: Date.now(),
+      };
 
-- socket.on('viewing_market', market_id)
-  - Emit to market: { type: 'viewer_count', count }
-  - Useful for social proof
+      await this.broadcastToMarketSubscribers(marketId, event);
+      this.lastPublishedOdds.set(marketId, currentOdds);
+    } catch (error) {
+      console.error('Realtime odds polling failed', { marketId, error });
+    }
+  }
+}
 
-- On disconnect: emit { type: 'user_offline' }
-*/
+// Rate limiting per connection
+const CONNECTION_RATE_LIMITS = {
+  SUBSCRIBE_PER_MINUTE: 30,
+  UNSUBSCRIBE_PER_MINUTE: 30,
+};
 
-/*
-TODO: Rate Limiting per Connection
-- Max events per second: 10
-- Max subscriptions per socket: 50
-- Kick socket if exceeds
-- Track abuse: log IPs sending spam
-*/
+interface RateLimitTracker {
+  subscribeCount: number;
+  unsubscribeCount: number;
+  windowStart: number;
+}
 
-/*
-TODO: Error Handling
-- On event error: emit to socket
-- Emit: { type: 'error', message, error_code }
-- Don't disconnect, let user retry
+/**
+ * Initialize Socket.io server with authentication and room management
+ */
+export function initializeSocketIO(
+  httpServer: HttpServer,
+  corsOrigin: string | string[]
+): SocketIOServer {
+  const io = new SocketIOServer(httpServer, {
+    cors: {
+      origin: corsOrigin,
+      methods: ['GET', 'POST'],
+      credentials: true,
+    },
+    pingTimeout: 60000,
+    pingInterval: 25000,
+  });
 
-- Connection error: log but don't expose details
-- Reconnection: client auto-reconnect with exponential backoff
-*/
+  // Rate limit tracking per socket
+  const rateLimits = new Map<string, RateLimitTracker>();
 
-/*
-TODO: Heartbeat & Keep-Alive
-- Emit: every 30 seconds, { type: 'ping', timestamp }
-- Expect pong response within 10 seconds
-- Disconnect if no pong
-- Helps detect stale connections
-*/
+  // JWT authentication middleware
+  io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth.token;
 
-/*
-TODO: Monitor & Metrics
-- Track: active connections count
-- Track: messages_per_minute
-- Track: errors_per_hour
-- Alert if connections drop unexpectedly (server restart?)
-- Log high CPU usage from WebSocket processing
-*/
+      if (!token) {
+        throw new AuthError('NO_TOKEN', 'Authentication token required', 401);
+      }
 
-/*
-TODO: Testing Events (Dev Only)
-- socket.on('test_odds_change')
-  - Simulate odds change for testing UI
-- socket.on('test_market_resolved')
-  - Simulate market resolution
-- Disabled in production
-*/
+      const payload = verifyAccessToken(token);
 
-export default {};
+      // Attach user data to socket
+      socket.data = {
+        userId: payload.userId,
+        publicKey: payload.publicKey,
+        connectedAt: Date.now(),
+        lastHeartbeat: Date.now(),
+      } as SocketData;
+
+      logger.info('WebSocket authenticated', {
+        socketId: socket.id,
+        userId: payload.userId,
+      });
+
+      next();
+    } catch (error) {
+      logger.warn('WebSocket authentication failed', {
+        socketId: socket.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      next(new Error('Authentication failed'));
+    }
+  });
+
+  // Connection handler
+  io.on('connection', (socket: Socket) => {
+    const socketData = socket.data as SocketData;
+
+    logger.info('WebSocket connected', {
+      socketId: socket.id,
+      userId: socketData.userId,
+    });
+
+    // Initialize rate limit tracker
+    rateLimits.set(socket.id, {
+      subscribeCount: 0,
+      unsubscribeCount: 0,
+      windowStart: Date.now(),
+    });
+
+    // Heartbeat handler
+    socket.on('heartbeat', () => {
+      socketData.lastHeartbeat = Date.now();
+      socket.emit('heartbeat_ack', { timestamp: Date.now() });
+    });
+
+    // Subscribe to market updates
+    socket.on('subscribe_market', (marketId: string) => {
+      if (!isValidMarketId(marketId)) {
+        socket.emit('error', { message: 'Invalid market ID' });
+        return;
+      }
+
+      if (!checkRateLimit(socket.id, 'subscribe', rateLimits)) {
+        socket.emit('error', { message: 'Rate limit exceeded' });
+        return;
+      }
+
+      const room = `market:${marketId}`;
+      socket.join(room);
+
+      logger.debug('Socket subscribed to market', {
+        socketId: socket.id,
+        userId: socketData.userId,
+        marketId,
+      });
+
+      socket.emit('subscribed', { marketId });
+    });
+
+    // Unsubscribe from market updates
+    socket.on('unsubscribe_market', (marketId: string) => {
+      if (!isValidMarketId(marketId)) {
+        socket.emit('error', { message: 'Invalid market ID' });
+        return;
+      }
+
+      if (!checkRateLimit(socket.id, 'unsubscribe', rateLimits)) {
+        socket.emit('error', { message: 'Rate limit exceeded' });
+        return;
+      }
+
+      const room = `market:${marketId}`;
+      socket.leave(room);
+
+      logger.debug('Socket unsubscribed from market', {
+        socketId: socket.id,
+        userId: socketData.userId,
+        marketId,
+      });
+
+      socket.emit('unsubscribed', { marketId });
+    });
+
+    // Disconnect handler
+    socket.on('disconnect', (reason: string) => {
+      logger.info('WebSocket disconnected', {
+        socketId: socket.id,
+        userId: socketData.userId,
+        reason,
+      });
+
+      // Cleanup rate limit tracker
+      rateLimits.delete(socket.id);
+    });
+  });
+
+  // Heartbeat cleanup interval (remove stale connections)
+  setInterval(() => {
+    const now = Date.now();
+    const staleThreshold = 90000; // 90 seconds
+
+    io.sockets.sockets.forEach((socket) => {
+      const socketData = socket.data as SocketData;
+      if (now - socketData.lastHeartbeat > staleThreshold) {
+        logger.warn('Disconnecting stale socket', {
+          socketId: socket.id,
+          userId: socketData.userId,
+          lastHeartbeat: socketData.lastHeartbeat,
+        });
+        socket.disconnect(true);
+      }
+    });
+  }, 30000); // Check every 30 seconds
+
+  return io;
+}
+
+/**
+ * Validate market ID format
+ */
+function isValidMarketId(marketId: unknown): marketId is string {
+  return (
+    typeof marketId === 'string' &&
+    marketId.length > 0 &&
+    marketId.length <= 100
+  );
+}
+
+/**
+ * Check rate limit for socket operations
+ */
+function checkRateLimit(
+  socketId: string,
+  operation: 'subscribe' | 'unsubscribe',
+  rateLimits: Map<string, RateLimitTracker>
+): boolean {
+  const tracker = rateLimits.get(socketId);
+  if (!tracker) return false;
+
+  const now = Date.now();
+  const windowDuration = 60000; // 1 minute
+
+  // Reset window if expired
+  if (now - tracker.windowStart > windowDuration) {
+    tracker.subscribeCount = 0;
+    tracker.unsubscribeCount = 0;
+    tracker.windowStart = now;
+  }
+
+  // Check limit
+  if (operation === 'subscribe') {
+    if (tracker.subscribeCount >= CONNECTION_RATE_LIMITS.SUBSCRIBE_PER_MINUTE) {
+      return false;
+    }
+    tracker.subscribeCount++;
+  } else {
+    if (
+      tracker.unsubscribeCount >= CONNECTION_RATE_LIMITS.UNSUBSCRIBE_PER_MINUTE
+    ) {
+      return false;
+    }
+    tracker.unsubscribeCount++;
+  }
+
+  return true;
+}

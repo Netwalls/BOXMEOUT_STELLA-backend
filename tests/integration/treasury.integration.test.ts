@@ -25,9 +25,12 @@ vi.mock('../../src/services/blockchain/treasury.js', async () => {
   };
 });
 
+const { errorHandler } = await import('../../src/middleware/error.middleware.js');
+
 const app = express();
 app.use(express.json());
 app.use('/api/treasury', treasuryRoutes);
+app.use(errorHandler);
 
 describe('Treasury API Integration Tests', () => {
   let adminToken: string;
@@ -122,12 +125,15 @@ describe('Treasury API Integration Tests', () => {
 
       vi.mocked(blockchainTreasuryService.distributeCreator).mockResolvedValue(mockResult);
 
+      const marketId = '123e4567-e89b-12d3-a456-426614174000';
+      const creatorAddress = 'GCREATORTEST12345678901234567890123456789012345678901234'; // 56 chars
+
       const response = await request(app)
         .post('/api/treasury/distribute-creator')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          marketId: 'market-123',
-          creatorAddress: 'GCREATORTEST12345678901234567890123456789012345678901234',
+          marketId,
+          creatorAddress,
           amount: '2000',
         });
 

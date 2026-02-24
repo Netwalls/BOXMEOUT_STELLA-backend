@@ -135,7 +135,13 @@ export const distributeLeaderboardBody = z.object({
         amount: z
           .string()
           .regex(/^\d+$/, 'Must be a numeric string')
-          .refine((val) => BigInt(val) > 0n, {
+          .refine((val) => {
+            try {
+              return BigInt(val) > 0n;
+            } catch {
+              return false;
+            }
+          }, {
             message: 'Amount must be greater than 0',
           }),
       })
@@ -150,7 +156,13 @@ export const distributeCreatorBody = z.object({
   amount: z
     .string()
     .regex(/^\d+$/, 'Must be a numeric string')
-    .refine((val) => BigInt(val) > 0n, {
+    .refine((val) => {
+      try {
+        return BigInt(val) > 0n;
+      } catch {
+        return false;
+      }
+    }, {
       message: 'Amount must be greater than 0',
     }),
 });

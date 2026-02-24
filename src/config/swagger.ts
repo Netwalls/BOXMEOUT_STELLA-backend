@@ -1233,7 +1233,7 @@ Real-time updates available via WebSocket at \`ws://localhost:3000/ws\`
   ],
 };
 
-const swaggerSpec = swaggerJsdoc(options);
+const swaggerSpec = swaggerJsdoc(options) as any;
 
 // Add WebSocket documentation to the spec
 swaggerSpec.components = swaggerSpec.components || {};
@@ -1248,7 +1248,12 @@ swaggerSpec.components.schemas.WebSocketEvent = {
   properties: {
     type: {
       type: 'string',
-      enum: ['odds_changed', 'market_updated', 'trade_executed', 'market_resolved'],
+      enum: [
+        'odds_changed',
+        'market_updated',
+        'trade_executed',
+        'market_resolved',
+      ],
     },
     timestamp: {
       type: 'integer',
@@ -1356,7 +1361,13 @@ swaggerSpec.components.schemas.TradeExecutedEvent = {
           type: 'number',
         },
       },
-      required: ['marketId', 'tradeType', 'outcome', 'quantity', 'pricePerUnit'],
+      required: [
+        'marketId',
+        'tradeType',
+        'outcome',
+        'quantity',
+        'pricePerUnit',
+      ],
     },
   ],
 };

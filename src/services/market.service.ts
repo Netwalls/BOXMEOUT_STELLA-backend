@@ -137,8 +137,7 @@ export class MarketService {
     } catch (error) {
       logger.error('Market creation error', { error });
       throw new Error(
-        `Failed to create market: ${
-          error instanceof Error ? error.message : 'Unknown error'
+        `Failed to create market: ${error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }
@@ -216,8 +215,11 @@ export class MarketService {
       market.status !== MarketStatus.CLOSED &&
       market.status !== MarketStatus.OPEN
     ) {
-      // Acceptance criteria might allow resolving from OPEN if closing time passed
-      // but typically CLOSED is safer. Let's stick to implementation.
+      throw new Error(`Market cannot be resolved in ${market.status} status`);
+    }
+
+    if (market.status === MarketStatus.OPEN && market.closingAt > new Date()) {
+      throw new Error('Market is still open and has not reached closing time');
     }
 
     if (winningOutcome !== 0 && winningOutcome !== 1) {

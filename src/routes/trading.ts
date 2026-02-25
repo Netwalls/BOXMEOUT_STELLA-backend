@@ -4,6 +4,14 @@
 import { Router } from 'express';
 import { tradingController } from '../controllers/trading.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import { validate } from '../middleware/validation.middleware.js';
+import {
+  buySharesBody,
+  sellSharesBody,
+  addLiquidityBody,
+  removeLiquidityBody,
+  marketIdParam,
+} from '../schemas/validation.schemas.js';
 
 const router: Router = Router();
 
@@ -83,8 +91,11 @@ const router: Router = Router();
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post('/:marketId/buy', requireAuth, (req, res) =>
-  tradingController.buyShares(req, res)
+router.post(
+  '/:marketId/buy',
+  requireAuth,
+  validate({ params: marketIdParam, body: buySharesBody }),
+  (req, res) => tradingController.buyShares(req, res)
 );
 
 /**
@@ -155,8 +166,11 @@ router.post('/:marketId/buy', requireAuth, (req, res) =>
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.post('/:marketId/sell', requireAuth, (req, res) =>
-  tradingController.sellShares(req, res)
+router.post(
+  '/:marketId/sell',
+  requireAuth,
+  validate({ params: marketIdParam, body: sellSharesBody }),
+  (req, res) => tradingController.sellShares(req, res)
 );
 
 /**
@@ -224,15 +238,21 @@ router.get('/:marketId/odds', (req, res) =>
 /**
  * POST /api/markets/:marketId/liquidity/add - Add USDC Liquidity to Pool
  */
-router.post('/:marketId/liquidity/add', requireAuth, (req, res) =>
-  tradingController.addLiquidity(req, res)
+router.post(
+  '/:marketId/liquidity/add',
+  requireAuth,
+  validate({ params: marketIdParam, body: addLiquidityBody }),
+  (req, res) => tradingController.addLiquidity(req, res)
 );
 
 /**
  * POST /api/markets/:marketId/liquidity/remove - Remove Liquidity from Pool
  */
-router.post('/:marketId/liquidity/remove', requireAuth, (req, res) =>
-  tradingController.removeLiquidity(req, res)
+router.post(
+  '/:marketId/liquidity/remove',
+  requireAuth,
+  validate({ params: marketIdParam, body: removeLiquidityBody }),
+  (req, res) => tradingController.removeLiquidity(req, res)
 );
 
 // ─── User-signed Transaction Routes ──────────────────────────────────────────
@@ -242,16 +262,22 @@ router.post('/:marketId/liquidity/remove', requireAuth, (req, res) =>
  * POST /api/markets/:marketId/build-tx/buy
  * Build an unsigned transaction for buying shares
  */
-router.post('/markets/:marketId/build-tx/buy', requireAuth, (req, res) =>
-  tradingController.buildBuySharesTx(req, res)
+router.post(
+  '/markets/:marketId/build-tx/buy',
+  requireAuth,
+  validate({ params: marketIdParam, body: buySharesBody }),
+  (req, res) => tradingController.buildBuySharesTx(req, res)
 );
 
 /**
  * POST /api/markets/:marketId/build-tx/sell
  * Build an unsigned transaction for selling shares
  */
-router.post('/markets/:marketId/build-tx/sell', requireAuth, (req, res) =>
-  tradingController.buildSellSharesTx(req, res)
+router.post(
+  '/markets/:marketId/build-tx/sell',
+  requireAuth,
+  validate({ params: marketIdParam, body: sellSharesBody }),
+  (req, res) => tradingController.buildSellSharesTx(req, res)
 );
 
 /**

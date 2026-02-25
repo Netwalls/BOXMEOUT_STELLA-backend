@@ -137,7 +137,8 @@ export class MarketService {
     } catch (error) {
       logger.error('Market creation error', { error });
       throw new Error(
-        `Failed to create market: ${error instanceof Error ? error.message : 'Unknown error'
+        `Failed to create market: ${
+          error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }

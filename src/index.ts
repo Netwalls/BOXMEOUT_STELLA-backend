@@ -14,6 +14,7 @@ import treasuryRoutes from './routes/treasury.routes.js';
 import referralsRoutes from './routes/referrals.routes.js';
 import leaderboardRoutes from './routes/leaderboard.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
+import walletRoutes from './routes/wallet.routes.js';
 
 // Import Redis initialization
 import {
@@ -228,6 +229,9 @@ app.use('/api/leaderboard', leaderboardRoutes);
 
 // Notification routes
 app.use('/api/notifications', notificationsRoutes);
+
+// Wallet routes (USDC withdraw)
+app.use('/api/wallet', walletRoutes);
 
 // =============================================================================
 // ERROR HANDLING - UPDATED WITH NEW ERROR HANDLER

@@ -35,10 +35,7 @@ export async function getUserNotifications(
 /**
  * Get unread notification count
  */
-export async function getUnreadCount(
-  req: AuthenticatedRequest,
-  res: Response
-) {
+export async function getUnreadCount(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
 

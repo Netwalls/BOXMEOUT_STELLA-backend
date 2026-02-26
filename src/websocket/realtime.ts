@@ -272,6 +272,22 @@ export function initializeSocketIO(
       room: userRoom,
     });
 
+    // Join user's private portfolio room for real-time portfolio updates
+    const portfolioRoom = `portfolio:${socketData.userId}`;
+    socket.join(portfolioRoom);
+    logger.debug('Socket joined portfolio room', {
+      socketId: socket.id,
+      userId: socketData.userId,
+      room: portfolioRoom,
+    });
+
+    // Confirm rooms to client on connection
+    socket.emit('connected', {
+      userId: socketData.userId,
+      rooms: [userRoom, portfolioRoom],
+      timestamp: Date.now(),
+    });
+
     // Initialize rate limit tracker
     rateLimits.set(socket.id, {
       subscribeCount: 0,
@@ -415,4 +431,113 @@ function checkRateLimit(
   }
 
   return true;
+}
+// ============================================================================
+// PORTFOLIO NOTIFICATION HELPERS
+// These are called from services (prediction, wallet) to push real-time
+// portfolio updates into the private `portfolio:<userId>` room.
+// ============================================================================
+
+export interface PositionChangedPayload {
+  type: 'position_changed';
+  marketId: string;
+  marketTitle: string;
+  outcome: number; // 0 | 1
+  amountUsdc: number;
+  status: string; // PredictionStatus value
+  pnlUsd?: number;
+  timestamp: number;
+}
+
+export interface WinningsClaimedPayload {
+  type: 'winnings_claimed';
+  predictionId: string;
+  marketTitle: string;
+  winningsUsdc: number;
+  newBalance: number;
+  timestamp: number;
+}
+
+export interface BalanceUpdatedPayload {
+  type: 'balance_updated';
+  usdcBalance: number;
+  xlmBalance?: number;
+  reason: 'deposit' | 'withdrawal' | 'winnings' | 'prediction' | 'refund';
+  amountDelta: number;
+  timestamp: number;
+}
+
+export type PortfolioEvent =
+  | PositionChangedPayload
+  | WinningsClaimedPayload
+  | BalanceUpdatedPayload;
+
+let _ioRef: SocketIOServer | null = null;
+
+/**
+ * Store a reference to the Socket.IO server so portfolio helpers can emit
+ * without passing io through every call chain.
+ */
+export function setSocketIORef(io: SocketIOServer): void {
+  _ioRef = io;
+}
+
+/**
+ * Emit a portfolio event into the user's private `portfolio:<userId>` room.
+ */
+export function emitPortfolioEvent(
+  userId: string,
+  event: PortfolioEvent
+): void {
+  if (!_ioRef) {
+    logger.debug('Socket.IO not initialized — skipping portfolio event', {
+      userId,
+      eventType: event.type,
+    });
+    return;
+  }
+  _ioRef.to(`portfolio:${userId}`).emit('portfolio_update', event);
+  logger.debug('Portfolio event emitted', { userId, eventType: event.type });
+}
+
+/**
+ * Convenience: notify of a position change (new prediction committed / revealed).
+ */
+export function notifyPositionChanged(
+  userId: string,
+  payload: Omit<PositionChangedPayload, 'type' | 'timestamp'>
+): void {
+  emitPortfolioEvent(userId, {
+    type: 'position_changed',
+    ...payload,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Convenience: notify of winnings being claimed.
+ */
+export function notifyWinningsClaimed(
+  userId: string,
+  payload: Omit<WinningsClaimedPayload, 'type' | 'timestamp'>
+): void {
+  emitPortfolioEvent(userId, {
+    type: 'winnings_claimed',
+    ...payload,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Convenience: notify of a USDC balance update.
+ */
+export function notifyBalanceUpdated(
+  userId: string,
+  payload: Omit<BalanceUpdatedPayload, 'type' | 'timestamp'>
+): void {
+  emitPortfolioEvent(userId, {
+    type: 'balance_updated',
+    ...payload,
+    timestamp: Date.now(),
+  });
 }

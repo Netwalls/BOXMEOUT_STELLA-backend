@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { tradingController } from '../controllers/trading.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import { tradeRateLimiter } from '../middleware/rateLimit.middleware.js';
 
 const router: Router = Router();
 
@@ -242,7 +243,7 @@ router.post('/:marketId/liquidity/remove', requireAuth, (req, res) =>
  * POST /api/markets/:marketId/build-tx/buy
  * Build an unsigned transaction for buying shares
  */
-router.post('/markets/:marketId/build-tx/buy', requireAuth, (req, res) =>
+router.post('/markets/:marketId/build-tx/buy', requireAuth, tradeRateLimiter, (req, res) =>
   tradingController.buildBuySharesTx(req, res)
 );
 
@@ -250,7 +251,7 @@ router.post('/markets/:marketId/build-tx/buy', requireAuth, (req, res) =>
  * POST /api/markets/:marketId/build-tx/sell
  * Build an unsigned transaction for selling shares
  */
-router.post('/markets/:marketId/build-tx/sell', requireAuth, (req, res) =>
+router.post('/markets/:marketId/build-tx/sell', requireAuth, tradeRateLimiter, (req, res) =>
   tradingController.buildSellSharesTx(req, res)
 );
 
@@ -258,7 +259,7 @@ router.post('/markets/:marketId/build-tx/sell', requireAuth, (req, res) =>
  * POST /api/submit-signed-tx
  * Submit a pre-signed transaction
  */
-router.post('/submit-signed-tx', requireAuth, (req, res) =>
+router.post('/submit-signed-tx', requireAuth, tradeRateLimiter, (req, res) =>
   tradingController.submitSignedTx(req, res)
 );
 

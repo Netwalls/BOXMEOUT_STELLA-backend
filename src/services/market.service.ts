@@ -11,6 +11,7 @@ import {
   leaderboardService,
   LeaderboardService,
 } from './leaderboard.service.js';
+import { achievementService } from './achievement.service.js';
 
 export class MarketService {
   private marketRepository: MarketRepository;
@@ -332,6 +333,15 @@ export class MarketService {
           market.category,
           totalUserPnl,
           hasWin
+        );
+
+        // Trigger achievement checks after settlement (non-blocking)
+        achievementService.checkAndAward(userId).catch((err) =>
+          logger.error('Achievement check failed post-settlement', {
+            userId,
+            marketId,
+            error: err,
+          })
         );
       } catch (error) {
         logger.error('Failed to update tier or leaderboard for user', {

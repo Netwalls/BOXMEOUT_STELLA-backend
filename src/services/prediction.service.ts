@@ -10,6 +10,11 @@ import {
   encrypt,
   decrypt,
 } from '../utils/crypto.js';
+import {
+  notifyPositionChanged,
+  notifyWinningsClaimed,
+  notifyBalanceUpdated,
+} from '../websocket/realtime.js';
 
 export class PredictionService {
   private predictionRepository: PredictionRepository;
@@ -123,6 +128,21 @@ export class PredictionService {
       await marketRepo.updateMarketVolume(marketId, amountUsdc, true);
 
       return prediction;
+    }).then((prediction) => {
+      // Fire-and-forget portfolio updates (non-blocking)
+      notifyPositionChanged(userId, {
+        marketId,
+        marketTitle: market.title,
+        outcome: predictedOutcome,
+        amountUsdc,
+        status: PredictionStatus.COMMITTED,
+      });
+      notifyBalanceUpdated(userId, {
+        usdcBalance: Number(user.usdcBalance) - amountUsdc,
+        reason: 'prediction',
+        amountDelta: -amountUsdc,
+      });
+      return prediction;
     });
   }
 
@@ -231,7 +251,7 @@ export class PredictionService {
     }
 
     // Update prediction and user balance in transaction
-    return await executeTransaction(async (tx) => {
+    const result = await executeTransaction(async (tx) => {
       const predictionRepo = new PredictionRepository(tx);
       const userRepo = new UserRepository(tx);
 
@@ -244,8 +264,23 @@ export class PredictionService {
 
       await userRepo.updateBalance(userId, Number(user.usdcBalance) + winnings);
 
-      return { winnings };
+      return { winnings, newBalance: Number(user.usdcBalance) + winnings };
     });
+
+    // Portfolio: notify winnings claimed
+    notifyWinningsClaimed(userId, {
+      predictionId,
+      marketTitle: (prediction as any).market?.title ?? 'Unknown market',
+      winningsUsdc: winnings,
+      newBalance: result.newBalance,
+    });
+    notifyBalanceUpdated(userId, {
+      usdcBalance: result.newBalance,
+      reason: 'winnings',
+      amountDelta: winnings,
+    });
+
+    return result;
   }
 
   async getUserPredictions(

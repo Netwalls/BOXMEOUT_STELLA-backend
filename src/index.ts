@@ -55,7 +55,7 @@ import { setupSwagger } from './config/swagger.js';
 import { cronService } from './services/cron.service.js';
 
 // Import WebSocket initialization
-import { initializeSocketIO } from './websocket/realtime.js';
+import { initializeSocketIO, setSocketIORef } from './websocket/realtime.js';
 import { notificationService } from './services/notification.service.js';
 import { createServer } from 'http';
 
@@ -267,6 +267,9 @@ async function startServer(): Promise<void> {
 
     // Connect notification service to WebSocket
     notificationService.setSocketIO(io);
+
+    // Store global io reference for portfolio emitters
+    setSocketIORef(io);
 
     // Initialize Cron Service
     await cronService.initialize();

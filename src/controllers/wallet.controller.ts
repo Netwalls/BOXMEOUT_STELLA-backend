@@ -9,6 +9,44 @@ import { logger } from '../utils/logger.js';
 
 export class WalletController {
   /**
+   * POST /api/wallet/deposit/initiate
+   *
+   * Response: { success: true, data: { depositAddress, memo, expiresAt } }
+   */
+  async initiateDeposit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication required');
+    }
+
+    const result = await walletService.initiateDeposit(userId);
+    res.status(200).json({ success: true, data: result });
+  }
+
+  /**
+   * POST /api/wallet/deposit/confirm
+   *
+   * Body: { txHash: string }
+   * Response: { success: true, data: { txHash, amountDeposited, newBalance } }
+   */
+  async confirmDeposit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication required');
+    }
+
+    const { txHash } = req.body as { txHash?: unknown };
+    if (!txHash || typeof txHash !== 'string') {
+      throw new ApiError(400, 'MISSING_TX_HASH', 'txHash is required');
+    }
+
+    logger.info('Deposit confirm request', { userId, txHash });
+
+    const result = await walletService.confirmDeposit({ userId, txHash });
+    res.status(200).json({ success: true, data: result });
+  }
+
+  /**
    * POST /api/wallet/withdraw
    *
    * Body: { amount: number }
@@ -55,3 +93,4 @@ export class WalletController {
 }
 
 export const walletController = new WalletController();
+

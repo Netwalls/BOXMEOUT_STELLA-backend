@@ -5,6 +5,14 @@ import { Router } from 'express';
 import { tradingController } from '../controllers/trading.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 import { tradeRateLimiter } from '../middleware/rateLimit.middleware.js';
+import { validate } from '../middleware/validation.middleware.js';
+import {
+  marketIdParam,
+  buySharesBody,
+  sellSharesBody,
+  addLiquidityBody,
+  removeLiquidityBody,
+} from '../schemas/validation.schemas.js';
 
 const router: Router = Router();
 

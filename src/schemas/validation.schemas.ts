@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MarketCategory } from '@prisma/client';
+import { stellarService } from '../services/stellar.service.js';
 
 // --- Sanitization helper ---
 
@@ -10,9 +11,16 @@ import { MarketCategory } from '@prisma/client';
 export function stripHtml(val: string): string {
   // Strip script tags and their content
   val = val.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  // Strip style tags and their content
+  val = val.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  // Strip event handlers (e.g., onclick, onerror)
+  val = val.replace(/\s+on\w+="[^"]*"/gi, '');
+  val = val.replace(/\s+on\w+='[^']*'/gi, '');
+  // Strip javascript: pseudo-protocol
+  val = val.replace(/javascript:[^"']*/gi, '');
   // Strip remaining HTML tags
   val = val.replace(/<[^>]*>/g, '');
-  // Strip HTML entities (e.g. &amp; &lt; &#39; &#x27;)
+  // Strip common HTML entities (e.g. &amp; &lt; &#39; &#x27;)
   val = val.replace(/&(?:#[0-9]+|#x[0-9a-fA-F]+|[a-zA-Z]+);/g, '');
   return val;
 }
@@ -33,7 +41,9 @@ export function sanitizedString(min: number, max: number) {
 
 export const stellarAddress = z
   .string()
-  .regex(/^G[A-Z0-9]{55}$/, 'Invalid Stellar public key');
+  .refine((val) => stellarService.isValidPublicKey(val), {
+    message: 'Invalid Stellar public key format or checksum',
+  });
 
 export const uuidParam = z.object({
   id: z.string().uuid(),
@@ -115,6 +125,90 @@ export const commitPredictionBody = z.object({
     ),
 });
 
+export const buySharesBody = z.object({
+  outcome: z.number().int().min(0).max(1),
+  amount: z
+    .string()
+    .regex(/^\d+$/, 'Amount must be a numeric string (USDC base units)')
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) > 0n;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Amount must be greater than 0' }
+    )
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) <= 1_000_000_000_000n;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Amount exceeds maximum limit' }
+    ),
+  minShares: z
+    .string()
+    .regex(/^\d+$/, 'minShares must be a numeric string')
+    .optional(),
+});
+
+export const sellSharesBody = z.object({
+  outcome: z.number().int().min(0).max(1),
+  shares: z
+    .string()
+    .regex(/^\d+$/, 'Shares must be a numeric string (base units)')
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) > 0n;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Shares must be greater than 0' }
+    ),
+  minPayout: z
+    .string()
+    .regex(/^\d+$/, 'minPayout must be a numeric string')
+    .optional(),
+});
+
+export const addLiquidityBody = z.object({
+  usdcAmount: z
+    .string()
+    .regex(/^\d+$/, 'usdcAmount must be a numeric string')
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) > 0n;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'usdcAmount must be greater than 0' }
+    ),
+});
+
+export const removeLiquidityBody = z.object({
+  lpTokens: z
+    .string()
+    .regex(/^\d+$/, 'lpTokens must be a numeric string')
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) > 0n;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'lpTokens must be greater than 0' }
+    ),
+});
+
 export const revealPredictionBody = z.object({
   predictionId: z.string().uuid(),
 });
@@ -135,9 +229,18 @@ export const distributeLeaderboardBody = z.object({
         amount: z
           .string()
           .regex(/^\d+$/, 'Must be a numeric string')
-          .refine((val) => BigInt(val) > 0n, {
-            message: 'Amount must be greater than 0',
-          }),
+          .refine(
+            (val) => {
+              try {
+                return BigInt(val) > 0n;
+              } catch {
+                return false;
+              }
+            },
+            {
+              message: 'Amount must be greater than 0',
+            }
+          ),
       })
     )
     .min(1)
@@ -150,7 +253,48 @@ export const distributeCreatorBody = z.object({
   amount: z
     .string()
     .regex(/^\d+$/, 'Must be a numeric string')
-    .refine((val) => BigInt(val) > 0n, {
-      message: 'Amount must be greater than 0',
-    }),
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) > 0n;
+        } catch {
+          return false;
+        }
+      },
+      {
+        message: 'Amount must be greater than 0',
+      }
+    ),
 });
+
+// --- Dispute schemas ---
+
+export const submitDisputeBody = z.object({
+  marketId: z.string().uuid(),
+  reason: sanitizedString(10, 1000),
+  evidenceUrl: z.string().url().optional().or(z.literal('')),
+});
+
+export const reviewDisputeBody = z.object({
+  adminNotes: sanitizedString(5, 5000),
+});
+
+export const resolveDisputeBody = z
+  .object({
+    action: z.enum(['DISMISS', 'RESOLVE_NEW_OUTCOME']),
+    resolution: sanitizedString(10, 5000),
+    adminNotes: sanitizedString(5, 5000).optional(),
+    newWinningOutcome: z.number().int().min(0).max(1).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.action === 'RESOLVE_NEW_OUTCOME' && data.newWinningOutcome === undefined) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'New winning outcome is required when action is RESOLVE_NEW_OUTCOME',
+      path: ['newWinningOutcome'],
+    }
+  );

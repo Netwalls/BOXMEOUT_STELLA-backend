@@ -10,6 +10,41 @@ import {
 
 const router: Router = Router();
 
+/**
+ * @swagger
+ * /api/treasury/balances:
+ *   get:
+ *     summary: Get treasury balances
+ *     description: Get current balances of all treasury accounts
+ *     tags: [Treasury]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Balances retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     platform:
+ *                       type: number
+ *                       description: Platform treasury balance in USDC
+ *                     leaderboard:
+ *                       type: number
+ *                       description: Leaderboard pool balance in USDC
+ *                     creator:
+ *                       type: number
+ *                       description: Creator rewards balance in USDC
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
 router.get('/balances', requireAuth, (req, res) =>
   treasuryController.getBalances(req, res)
 );

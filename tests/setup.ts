@@ -23,6 +23,8 @@ process.env.DATABASE_URL =
   'postgresql://postgres:password@localhost:5432/boxmeout_test';
 process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-encryption-key-32-chars!!';
+process.env.ADMIN_WALLET_ADDRESSES =
+  process.env.ADMIN_WALLET_ADDRESSES || 'GADMIN';
 
 // Stellar test configuration
 process.env.ADMIN_WALLET_SECRET =

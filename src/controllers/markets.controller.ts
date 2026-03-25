@@ -232,6 +232,49 @@ export class MarketsController {
       });
     }
   }
+
+  /**
+   * PATCH /api/markets/:id/deactivate - Deactivate a market
+   */
+  async deactivateMarket(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const marketId = req.params.id as string;
+
+      const result = await this.marketService.deactivateMarket(marketId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      (req.log || logger).error('Deactivate market error', { error });
+
+      if (error instanceof Error && error.message === 'Market not found') {
+        res.status(404).json({
+          success: false,
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Market not found',
+          },
+        });
+        return;
+      }
+
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Failed to deactivate market',
+        },
+      });
+    }
+  }
 }
 
 // Export singleton instance

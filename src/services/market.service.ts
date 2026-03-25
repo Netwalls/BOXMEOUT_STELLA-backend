@@ -11,6 +11,7 @@ import {
   leaderboardService,
   LeaderboardService,
 } from './leaderboard.service.js';
+import { achievementService } from './achievement.service.js';
 
 export class MarketService {
   private marketRepository: MarketRepository;
@@ -216,8 +217,11 @@ export class MarketService {
       market.status !== MarketStatus.CLOSED &&
       market.status !== MarketStatus.OPEN
     ) {
-      // Acceptance criteria might allow resolving from OPEN if closing time passed
-      // but typically CLOSED is safer. Let's stick to implementation.
+      throw new Error(`Market cannot be resolved in ${market.status} status`);
+    }
+
+    if (market.status === MarketStatus.OPEN && market.closingAt > new Date()) {
+      throw new Error('Market is still open and has not reached closing time');
     }
 
     if (winningOutcome !== 0 && winningOutcome !== 1) {
@@ -330,6 +334,15 @@ export class MarketService {
           totalUserPnl,
           hasWin
         );
+
+        // Trigger achievement checks after settlement (non-blocking)
+        achievementService.checkAndAward(userId).catch((err) =>
+          logger.error('Achievement check failed post-settlement', {
+            userId,
+            marketId,
+            error: err,
+          })
+        );
       } catch (error) {
         logger.error('Failed to update tier or leaderboard for user', {
           userId,
@@ -356,6 +369,22 @@ export class MarketService {
       throw new Error('Cannot cancel resolved market');
     }
 
+    return await this.marketRepository.updateMarketStatus(
+      marketId,
+      MarketStatus.CANCELLED
+    );
+  }
+
+  async deactivateMarket(marketId: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) {
+      throw new Error('Market not found');
+    }
+
+    // Call blockchain factory to deactivate market on-chain
+    await factoryService.deactivateMarket(market.contractAddress);
+
+    // Update market status in the database to CANCELLED
     return await this.marketRepository.updateMarketStatus(
       marketId,
       MarketStatus.CANCELLED

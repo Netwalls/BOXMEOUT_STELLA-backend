@@ -1,5 +1,13 @@
 // backend/src/services/blockchain/amm.ts
 // AMM (Automated Market Maker) contract interaction service
+//
+// SECURITY MODEL:
+//   Admin key  → createPool, getPoolState, buyShares (direct), sellShares (direct)
+//   User key   → buildXxxTx (for frontend signing), submitSignedTx
+//
+// For user-signed operations the backend NEVER signs. Instead:
+//   1. buildXxxTx()     → returns unsigned base64 XDR for the frontend to sign
+//   2. submitSignedTx() → validates signature, then submits to Soroban
 
 import {
   Contract,
@@ -13,6 +21,9 @@ import {
 } from '@stellar/stellar-sdk';
 import { BaseBlockchainService } from './base.js';
 import { logger } from '../../utils/logger.js';
+import { userSignedTxService, SubmitResult } from './user-tx.service.js';
+
+// ─── Param/result interfaces ──────────────────────────────────────────────────
 
 interface BuySharesParams {
   marketId: string;
@@ -64,6 +75,54 @@ interface CreatePoolResult {
   odds: { yes: number; no: number };
 }
 
+export interface BuySharesTxParams {
+  marketId: string;
+  outcome: number; // 0 = NO, 1 = YES
+  amountUsdc: bigint;
+  minShares: bigint;
+}
+
+export interface SellSharesTxParams {
+  marketId: string;
+  outcome: number; // 0 = NO, 1 = YES
+  shares: bigint;
+  minPayout: bigint;
+}
+
+export interface AddLiquidityTxParams {
+  marketId: string;
+  usdcAmount: bigint;
+}
+
+export interface RemoveLiquidityTxParams {
+  marketId: string;
+  lpTokens: bigint;
+}
+
+interface AddLiquidityParams {
+  marketId: string; // hex string (BytesN<32>)
+  usdcAmount: bigint;
+}
+
+interface AddLiquidityResult {
+  lpTokensMinted: bigint;
+  txHash: string;
+}
+
+interface RemoveLiquidityParams {
+  marketId: string; // hex string (BytesN<32>)
+  lpTokens: bigint;
+}
+
+interface RemoveLiquidityResult {
+  yesAmount: bigint;
+  noAmount: bigint;
+  totalUsdcReturned: bigint;
+  txHash: string;
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
+
 export class AmmService extends BaseBlockchainService {
   private readonly ammContractId: string;
 
@@ -73,7 +132,7 @@ export class AmmService extends BaseBlockchainService {
   }
 
   /**
-   * Buy outcome shares from the AMM
+   * Buy outcome shares from the AMM (Direct/Admin-signed)
    * @param params - Buy parameters
    * @returns Shares received and transaction details
    */
@@ -161,7 +220,7 @@ export class AmmService extends BaseBlockchainService {
   }
 
   /**
-   * Sell outcome shares to the AMM
+   * Sell outcome shares to the AMM (Direct/Admin-signed)
    * @param params - Sell parameters
    * @returns Payout received and transaction details
    */
@@ -323,8 +382,10 @@ export class AmmService extends BaseBlockchainService {
     }
   }
 
+  // ── Admin-only: create pool ────────────────────────────────────────────────
+
   /**
-   * Call AMM.create_pool(market_id, initial_liquidity)
+   * Call AMM.create_pool(market_id, initial_liquidity) — signed by admin.
    */
   async createPool(params: CreatePoolParams): Promise<CreatePoolResult> {
     if (!this.ammContractId) {
@@ -396,12 +457,179 @@ export class AmmService extends BaseBlockchainService {
   }
 
   /**
-   * Read-only call: get pool state
+   * Add USDC liquidity to an existing pool and receive minted LP tokens.
+   * Calls AMM.add_liquidity(lp_provider, market_id, usdc_amount)
+   * @param params - Add liquidity parameters
+   * @returns LP tokens minted and transaction hash
    */
+  async addLiquidity(params: AddLiquidityParams): Promise<AddLiquidityResult> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    try {
+      const contract = new Contract(this.ammContractId);
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
+
+      const builtTx = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'add_liquidity',
+            nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
+            nativeToScVal(params.usdcAmount, { type: 'i128' })
+          )
+        )
+        .setTimeout(30)
+        .build();
+
+      const prepared = await this.rpcServer.prepareTransaction(builtTx);
+      prepared.sign(this.adminKeypair);
+
+      const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+      if (sendResponse.status === 'PENDING') {
+        const txHash = sendResponse.hash;
+        const result = await this.waitForTransaction(
+          txHash,
+          'addLiquidity',
+          params
+        );
+
+        if (result.status === 'SUCCESS') {
+          // Contract returns i128 LP tokens minted
+          const lpTokensMinted = result.returnValue
+            ? BigInt(scValToNative(result.returnValue) as bigint)
+            : BigInt(0);
+
+          return { lpTokensMinted, txHash };
+        } else {
+          throw new Error(`Transaction failed: ${result.status}`);
+        }
+      } else {
+        throw new Error(
+          `Transaction submission failed: ${sendResponse.status}`
+        );
+      }
+    } catch (error) {
+      logger.error('AMM.add_liquidity() error', { error });
+      throw new Error(
+        `Failed to add liquidity: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Remove liquidity from an existing pool by redeeming LP tokens.
+   * Calls AMM.remove_liquidity(lp_provider, market_id, lp_tokens)
+   * @param params - Remove liquidity parameters
+   * @returns YES/NO amounts and total USDC returned, plus transaction hash
+   */
+  async removeLiquidity(
+    params: RemoveLiquidityParams
+  ): Promise<RemoveLiquidityResult> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    try {
+      const contract = new Contract(this.ammContractId);
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
+
+      const builtTx = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'remove_liquidity',
+            nativeToScVal(this.adminKeypair.publicKey(), { type: 'address' }),
+            nativeToScVal(
+              Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')
+            ),
+            nativeToScVal(params.lpTokens, { type: 'i128' })
+          )
+        )
+        .setTimeout(30)
+        .build();
+
+      const prepared = await this.rpcServer.prepareTransaction(builtTx);
+      prepared.sign(this.adminKeypair);
+
+      const sendResponse = await this.rpcServer.sendTransaction(prepared);
+
+      if (sendResponse.status === 'PENDING') {
+        const txHash = sendResponse.hash;
+        const result = await this.waitForTransaction(
+          txHash,
+          'removeLiquidity',
+          params
+        );
+
+        if (result.status === 'SUCCESS') {
+          // Contract returns (i128, i128) tuple → (yes_amount, no_amount)
+          const native = result.returnValue
+            ? scValToNative(result.returnValue)
+            : [BigInt(0), BigInt(0)];
+          const pair = Array.isArray(native) ? native : [BigInt(0), BigInt(0)];
+          const yesAmount = BigInt(pair[0] ?? 0);
+          const noAmount = BigInt(pair[1] ?? 0);
+
+          return {
+            yesAmount,
+            noAmount,
+            totalUsdcReturned: yesAmount + noAmount,
+            txHash,
+          };
+        } else {
+          throw new Error(`Transaction failed: ${result.status}`);
+        }
+      } else {
+        throw new Error(
+          `Transaction submission failed: ${sendResponse.status}`
+        );
+      }
+    } catch (error) {
+      logger.error('AMM.remove_liquidity() error', { error });
+      throw new Error(
+        `Failed to remove liquidity: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  // ── Read-only: pool state ──────────────────────────────────────────────────
+
   async getPoolState(marketId: string): Promise<{
     reserves: { yes: bigint; no: bigint };
     odds: { yes: number; no: number };
   }> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
     const contract = new Contract(this.ammContractId);
 
     const accountKey =
@@ -438,19 +666,183 @@ export class AmmService extends BaseBlockchainService {
     }
 
     const native = scValToNative(sim.result.retval) as Record<string, unknown>;
-
     const reserves = {
       yes: BigInt((native.r_yes ?? native.yes ?? 0) as bigint),
       no: BigInt((native.r_no ?? native.no ?? 0) as bigint),
     };
-
     const odds = {
       yes: Number(native.odds_yes ?? native.yes_odds ?? 0.5),
       no: Number(native.odds_no ?? native.no_odds ?? 0.5),
     };
-
     return { reserves, odds };
   }
+
+  // ── User-signed: build unsigned XDR ───────────────────────────────────────
+
+  /**
+   * Build an unsigned buy_shares transaction.
+   * The returned base64 XDR must be signed by `userPublicKey` before submitting.
+   *
+   * SECURITY: userPublicKey is passed as the buyer argument — on-chain positions
+   * will belong to the user, never to the admin.
+   */
+  async buildBuySharesTx(
+    userPublicKey: string,
+    params: BuySharesTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'buy_shares',
+          // buyer = user's own public key, NOT admin
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.amountUsdc, { type: 'i128' }),
+          nativeToScVal(params.minShares, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    // prepareTransaction fetches simulation footprint — still unsigned
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  /**
+   * Build an unsigned sell_shares transaction.
+   */
+  async buildSellSharesTx(
+    userPublicKey: string,
+    params: SellSharesTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'sell_shares',
+          // seller = user, NOT admin
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.outcome, { type: 'u32' }),
+          nativeToScVal(params.shares, { type: 'i128' }),
+          nativeToScVal(params.minPayout, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  /**
+   * Build an unsigned add_liquidity transaction.
+   */
+  async buildAddLiquidityTx(
+    userPublicKey: string,
+    params: AddLiquidityTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'add_liquidity',
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.usdcAmount, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  /**
+   * Build an unsigned remove_liquidity transaction.
+   */
+  async buildRemoveLiquidityTx(
+    userPublicKey: string,
+    params: RemoveLiquidityTxParams
+  ): Promise<string> {
+    if (!this.ammContractId) {
+      throw new Error('AMM contract address not configured');
+    }
+
+    const contract = new Contract(this.ammContractId);
+    const sourceAccount = await this.rpcServer.getAccount(userPublicKey);
+
+    const builtTx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          'remove_liquidity',
+          nativeToScVal(userPublicKey, { type: 'address' }),
+          nativeToScVal(Buffer.from(params.marketId.replace(/^0x/, ''), 'hex')),
+          nativeToScVal(params.lpTokens, { type: 'i128' })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(builtTx);
+    return prepared.toXDR();
+  }
+
+  // ── User-signed: validate + submit ────────────────────────────────────────
+
+  /**
+   * Validate the user's signature on a pre-signed XDR and submit it.
+   *
+   * SECURITY: userPublicKey comes from the verified JWT — it is never
+   * controlled by the request body.
+   */
+  async submitSignedTx(
+    signedXdrBase64: string,
+    userPublicKey: string,
+    operationName: string
+  ): Promise<SubmitResult> {
+    return userSignedTxService.validateAndSubmit(
+      signedXdrBase64,
+      userPublicKey,
+      operationName
+    );
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
 
   /**
    * Parse buy_shares contract return value

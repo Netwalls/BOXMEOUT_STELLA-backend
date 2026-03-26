@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
@@ -9,7 +17,14 @@ const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 // Import services
 import { SessionService } from '../src/services/session.service.js';
 import { StellarService } from '../src/services/stellar.service.js';
-import { signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken, getAccessTokenTTLSeconds, getRefreshTokenTTLSeconds } from '../src/utils/jwt.js';
+import {
+  signAccessToken,
+  signRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  getAccessTokenTTLSeconds,
+  getRefreshTokenTTLSeconds,
+} from '../src/utils/jwt.js';
 import { generateNonce } from '../src/utils/crypto.js';
 
 describe('Auth Integration Tests', () => {
@@ -53,7 +68,10 @@ describe('Auth Integration Tests', () => {
       expect(isValid).toBe(true);
 
       // Step 4: Consume nonce (simulating login)
-      const consumed = await sessionService.consumeNonce(publicKey, nonceData.nonce);
+      const consumed = await sessionService.consumeNonce(
+        publicKey,
+        nonceData.nonce
+      );
       expect(consumed).not.toBeNull();
 
       // Step 5: Generate tokens
@@ -109,7 +127,10 @@ describe('Auth Integration Tests', () => {
       await sessionService.consumeNonce(publicKey, nonceData.nonce);
 
       // Try to use same nonce again (replay attack)
-      const consumed = await sessionService.consumeNonce(publicKey, nonceData.nonce);
+      const consumed = await sessionService.consumeNonce(
+        publicKey,
+        nonceData.nonce
+      );
       expect(consumed).toBeNull();
     });
   });
@@ -118,7 +139,7 @@ describe('Auth Integration Tests', () => {
     it('should decode valid access token', () => {
       const payload = {
         userId: 'user-123',
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         tier: 'EXPERT' as const,
       };
 
@@ -133,7 +154,7 @@ describe('Auth Integration Tests', () => {
     it('should reject tampered token', () => {
       const token = signAccessToken({
         userId: 'user-123',
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         tier: 'BEGINNER',
       });
 
@@ -149,7 +170,7 @@ describe('Auth Integration Tests', () => {
       const sessionData = {
         userId: 'user-123',
         tokenId: 'token-456',
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -166,7 +187,7 @@ describe('Auth Integration Tests', () => {
       const oldSession = {
         userId: 'user-123',
         tokenId: 'old-token',
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -174,7 +195,7 @@ describe('Auth Integration Tests', () => {
       const newSession = {
         userId: 'user-123',
         tokenId: 'new-token',
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -260,7 +281,10 @@ describe('Auth Integration Tests', () => {
         })
       );
 
-      const consumed = await sessionService.consumeNonce(publicKey, expiredNonce);
+      const consumed = await sessionService.consumeNonce(
+        publicKey,
+        expiredNonce
+      );
       expect(consumed).toBeNull();
     });
 
@@ -302,9 +326,15 @@ describe('Auth Integration Tests', () => {
       const publicKey = keypair.publicKey();
 
       const nonceData = await sessionService.createNonce(publicKey);
-      const signature = keypair.sign(Buffer.from(nonceData.message)).toString('base64');
+      const signature = keypair
+        .sign(Buffer.from(nonceData.message))
+        .toString('base64');
 
-      const isValid = stellarService.verifySignature(publicKey, nonceData.message, signature);
+      const isValid = stellarService.verifySignature(
+        publicKey,
+        nonceData.message,
+        signature
+      );
       expect(isValid).toBe(true);
     });
 
@@ -313,7 +343,9 @@ describe('Auth Integration Tests', () => {
       const keypair2 = Keypair.random();
 
       const nonceData = await sessionService.createNonce(keypair1.publicKey());
-      const signature = keypair2.sign(Buffer.from(nonceData.message)).toString('base64');
+      const signature = keypair2
+        .sign(Buffer.from(nonceData.message))
+        .toString('base64');
 
       const isValid = stellarService.verifySignature(
         keypair1.publicKey(),
@@ -345,10 +377,16 @@ describe('Auth Integration Tests', () => {
       const publicKey = keypair.publicKey();
 
       const nonceData = await sessionService.createNonce(publicKey);
-      const signature = keypair.sign(Buffer.from(nonceData.message)).toString('base64');
+      const signature = keypair
+        .sign(Buffer.from(nonceData.message))
+        .toString('base64');
 
       const tamperedMessage = nonceData.message + ' TAMPERED';
-      const isValid = stellarService.verifySignature(publicKey, tamperedMessage, signature);
+      const isValid = stellarService.verifySignature(
+        publicKey,
+        tamperedMessage,
+        signature
+      );
       expect(isValid).toBe(false);
     });
   });
@@ -380,7 +418,7 @@ describe('Auth Integration Tests', () => {
       const oldSession = {
         userId,
         tokenId: oldTokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -390,7 +428,7 @@ describe('Auth Integration Tests', () => {
       const newSession = {
         userId,
         tokenId: newTokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -416,7 +454,10 @@ describe('Auth Integration Tests', () => {
     });
 
     it('should reject refresh token used as access token', () => {
-      const refreshToken = signRefreshToken({ userId: 'test', tokenId: 'test' });
+      const refreshToken = signRefreshToken({
+        userId: 'test',
+        tokenId: 'test',
+      });
 
       expect(() => verifyAccessToken(refreshToken)).toThrow();
     });
@@ -429,7 +470,7 @@ describe('Auth Integration Tests', () => {
       const oldSession = {
         userId,
         tokenId: oldTokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -440,7 +481,7 @@ describe('Auth Integration Tests', () => {
       const newSession = {
         userId,
         tokenId: newTokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -461,7 +502,7 @@ describe('Auth Integration Tests', () => {
       const session = {
         userId,
         tokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
@@ -481,7 +522,7 @@ describe('Auth Integration Tests', () => {
         await sessionService.createSession({
           userId,
           tokenId,
-          publicKey: 'GBTEST',
+          publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
           createdAt: Date.now(),
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         });
@@ -527,7 +568,7 @@ describe('Auth Integration Tests', () => {
       await sessionService.createSession({
         userId,
         tokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       });
@@ -548,7 +589,7 @@ describe('Auth Integration Tests', () => {
         await sessionService.createSession({
           userId,
           tokenId: `concurrent-token-${i}`,
-          publicKey: 'GBTEST',
+          publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
           createdAt: Date.now(),
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         });
@@ -566,7 +607,7 @@ describe('Auth Integration Tests', () => {
         await sessionService.createSession({
           userId,
           tokenId,
-          publicKey: 'GBTEST',
+          publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
           createdAt: Date.now(),
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         });
@@ -586,7 +627,7 @@ describe('Auth Integration Tests', () => {
         await sessionService.createSession({
           userId,
           tokenId,
-          publicKey: 'GBTEST',
+          publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
           createdAt: Date.now(),
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         });
@@ -611,7 +652,7 @@ describe('Auth Integration Tests', () => {
         sessionService.createSession({
           userId,
           tokenId: `race-token-${i}`,
-          publicKey: 'GBTEST',
+          publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
           createdAt: Date.now(),
           expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
         })
@@ -631,7 +672,7 @@ describe('Auth Integration Tests', () => {
       await sessionService.createSession({
         userId,
         tokenId,
-        publicKey: 'GBTEST',
+        publicKey: 'GDNX7YG5NRHBKIZITO3FIFYXWLDDAL27IPXLQZSNJBZIIVPDTXJS3YNM',
         createdAt: Date.now(),
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
       });

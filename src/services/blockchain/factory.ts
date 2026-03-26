@@ -152,6 +152,78 @@ export class FactoryService extends BaseBlockchainService {
   }
 
   /**
+   * Call Factory.deactivate_market()
+   */
+  async deactivateMarket(
+    marketContractAddress: string
+  ): Promise<{ txHash: string }> {
+    if (!this.factoryContractId) {
+      throw new Error('Factory contract address not configured');
+    }
+
+    if (!this.adminKeypair) {
+      throw new Error(
+        'ADMIN_WALLET_SECRET not configured - cannot sign transactions'
+      );
+    }
+
+    try {
+      const contract = new Contract(this.factoryContractId);
+      const sourceAccount = await this.rpcServer.getAccount(
+        this.adminKeypair.publicKey()
+      );
+
+      const builtTransaction = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'deactivate_market',
+            new Address(marketContractAddress).toScVal()
+          )
+        )
+        .setTimeout(30)
+        .build();
+
+      const preparedTransaction =
+        await this.rpcServer.prepareTransaction(builtTransaction);
+      preparedTransaction.sign(this.adminKeypair);
+
+      const response =
+        await this.rpcServer.sendTransaction(preparedTransaction);
+
+      if (response.status === 'PENDING') {
+        const txHash = response.hash;
+        const result = await this.waitForTransaction(
+          txHash,
+          'deactivateMarket',
+          { marketContractAddress }
+        );
+
+        if (result.status === 'SUCCESS') {
+          return { txHash };
+        } else {
+          throw new Error(`Transaction failed: ${result.status}`);
+        }
+      } else if (response.status === 'ERROR') {
+        throw new Error(
+          `Transaction submission error: ${response.errorResult}`
+        );
+      } else {
+        throw new Error(`Unexpected response status: ${response.status}`);
+      }
+    } catch (error) {
+      logger.error('Factory.deactivate_market() error', { error });
+      throw new Error(
+        `Failed to deactivate market: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
    * Read-only call: get market count
    */
   async getMarketCount(): Promise<number> {

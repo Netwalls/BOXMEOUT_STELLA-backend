@@ -56,4 +56,17 @@ export class NotificationRepository extends BaseRepository<Notification> {
       this.prisma.notification.count({ where: { userId, isRead: false } })
     );
   }
+
+  /**
+   * Delete notifications older than the given number of days.
+   * Returns the count of deleted records.
+   */
+  async deleteExpiredNotifications(olderThanDays: number): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - olderThanDays);
+    const result = await this.prisma.notification.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return result.count;
+  }
 }

@@ -216,6 +216,51 @@ export class MarketRepository extends BaseRepository<Market> {
     });
   }
 
+  /**
+   * Find OPEN markets whose closingAt has already passed — ready to be closed.
+   */
+  async findExpiredOpenMarkets(): Promise<Market[]> {
+    return await this.prisma.market.findMany({
+      where: {
+        status: MarketStatus.OPEN,
+        closingAt: { lt: new Date() },
+      },
+      orderBy: { closingAt: 'asc' },
+    });
+  }
+
+  /**
+   * Find DISPUTED markets whose resolvedAt is older than windowMs milliseconds.
+   * These have passed the dispute window and can be finalized on-chain.
+   */
+  async findDisputedMarketsReadyToFinalize(
+    windowMs: number
+  ): Promise<Market[]> {
+    const cutoff = new Date(Date.now() - windowMs);
+    return await this.prisma.market.findMany({
+      where: {
+        status: MarketStatus.DISPUTED,
+        resolvedAt: { lt: cutoff },
+      },
+      orderBy: { resolvedAt: 'asc' },
+    });
+  }
+
+  /**
+   * Find RESOLVED markets that still have REVEALED (unsettled) predictions.
+   */
+  async findResolvedMarketsWithUnsettledPredictions(): Promise<Market[]> {
+    return await this.prisma.market.findMany({
+      where: {
+        status: MarketStatus.RESOLVED,
+        predictions: {
+          some: { status: 'REVEALED' },
+        },
+      },
+      orderBy: { resolvedAt: 'asc' },
+    });
+  }
+
   async getMarketStatistics() {
     return this.timedQuery('getMarketStatistics', async () => {
       const [totalMarkets, activeMarkets, totalVolume, avgParticipants] =

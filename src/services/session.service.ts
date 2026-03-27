@@ -19,7 +19,7 @@ export class SessionService {
   private readonly BLACKLIST_PREFIX = 'auth:blacklist:';
 
   // TTL values
-  private readonly NONCE_TTL_SECONDS = 300; // 5 minutes
+  private readonly NONCE_TTL_SECONDS = 60; // 60 seconds (per spec)
 
   constructor() {
     this.redis = getRedisClient();

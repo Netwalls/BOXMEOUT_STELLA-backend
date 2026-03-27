@@ -16,6 +16,34 @@ import { logger } from '../utils/logger.js';
  */
 export class AuthController {
   /**
+   * GET /api/auth/challenge
+   * Request a nonce for wallet signing via query param
+   * Nonce expires after 60 seconds.
+   */
+  async challengeGet(req: Request, res: Response): Promise<void> {
+    try {
+      const publicKey = req.query.publicKey as string;
+
+      if (!publicKey) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_PUBLIC_KEY', message: 'publicKey query parameter is required' },
+        });
+        return;
+      }
+
+      const challenge = await authService.generateChallenge(publicKey);
+
+      res.status(200).json({
+        success: true,
+        data: challenge,
+      });
+    } catch (error) {
+      this.handleError(error, res);
+    }
+  }
+
+  /**
    * POST /api/auth/challenge
    * Request a nonce for wallet signing
    *
@@ -96,7 +124,7 @@ export class AuthController {
   /**
    * POST /api/auth/logout
    * Invalidate current session
-   * Requires refresh token in body to identify which session to invalidate
+   * Requires valid access token (auth middleware) + refresh token in body
    */
   async logout(req: Request, res: Response): Promise<void> {
     try {
@@ -107,10 +135,7 @@ export class AuthController {
 
       await authService.logout(payload.tokenId, payload.userId);
 
-      res.status(200).json({
-        success: true,
-        message: 'Logged out successfully',
-      });
+      res.status(204).send();
     } catch (error) {
       this.handleError(error, res);
     }
@@ -134,13 +159,9 @@ export class AuthController {
         return;
       }
 
-      const count = await authService.logoutAll(req.user.userId);
+      await authService.logoutAll(req.user.userId);
 
-      res.status(200).json({
-        success: true,
-        message: `Logged out from ${count} session(s)`,
-        data: { sessionsRevoked: count },
-      });
+      res.status(204).send();
     } catch (error) {
       this.handleError(error, res);
     }

@@ -56,6 +56,44 @@ router.post(
 
 /**
  * @swagger
+ * /api/auth/challenge:
+ *   get:
+ *     summary: Request authentication challenge (GET variant)
+ *     description: Returns a one-time nonce for the given public key. Nonce expires after 60 seconds.
+ *     tags: [Authentication]
+ *     parameters:
+ *       - in: query
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stellar public key
+ *     responses:
+ *       200:
+ *         description: Challenge created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/WalletChallengeResponse'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+router.get(
+  '/challenge',
+  challengeRateLimiter,
+  (req, res) => authController.challengeGet(req, res)
+);
+
+/**
+ * @swagger
  * /api/auth/login:
  *   post:
  *     summary: Authenticate with Stellar wallet
@@ -89,6 +127,44 @@ router.post(
  */
 router.post(
   '/login',
+  authRateLimiter,
+  validate({ body: loginBody }),
+  (req, res) => authController.login(req, res)
+);
+
+/**
+ * @swagger
+ * /api/auth/wallet-login:
+ *   post:
+ *     summary: Authenticate with Stellar wallet signature
+ *     description: Verifies the signed nonce against the public key, issues JWT pair on success. Returns 401 if signature is invalid or nonce is expired/used.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/WalletAuthRequest'
+ *     responses:
+ *       200:
+ *         description: Authentication successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/AuthResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+router.post(
+  '/wallet-login',
   authRateLimiter,
   validate({ body: loginBody }),
   (req, res) => authController.login(req, res)
@@ -150,8 +226,10 @@ router.post(
  * /api/auth/logout:
  *   post:
  *     summary: Logout current session
- *     description: Invalidate the current refresh token and logout
+ *     description: Invalidate the current refresh token. Requires a valid access token.
  *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -164,24 +242,18 @@ router.post(
  *               refreshToken:
  *                 type: string
  *     responses:
- *       200:
+ *       204:
  *         description: Logout successful
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Logged out successfully
  *       400:
  *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
  */
-router.post('/logout', validate({ body: logoutBody }), (req, res) =>
-  authController.logout(req, res)
+router.post(
+  '/logout',
+  requireAuth,
+  validate({ body: logoutBody }),
+  (req, res) => authController.logout(req, res)
 );
 
 /**
@@ -189,30 +261,13 @@ router.post('/logout', validate({ body: logoutBody }), (req, res) =>
  * /api/auth/logout-all:
  *   post:
  *     summary: Logout from all devices
- *     description: Invalidate all refresh tokens for the current user
+ *     description: Invalidate ALL sessions for the authenticated user.
  *     tags: [Authentication]
  *     security:
  *       - bearerAuth: []
  *     responses:
- *       200:
- *         description: All sessions logged out
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Logged out from all devices
- *                 data:
- *                   type: object
- *                   properties:
- *                     sessionsRevoked:
- *                       type: integer
- *                       example: 3
+ *       204:
+ *         description: All sessions invalidated
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */

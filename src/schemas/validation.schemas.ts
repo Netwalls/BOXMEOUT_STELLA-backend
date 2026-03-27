@@ -267,6 +267,20 @@ export const distributeCreatorBody = z.object({
     ),
 });
 
+// --- Trading: user-signed transaction ---
+
+/**
+ * POST /api/trading/submit-tx
+ * signedXdr must be a non-empty base64 string (the Stellar SDK will reject
+ * anything that isn't valid XDR at the service layer).
+ */
+export const submitTxBody = z.object({
+  signedXdr: z
+    .string()
+    .min(1, 'signedXdr is required')
+    .regex(/^[A-Za-z0-9+/]+=*$/, 'signedXdr must be a valid base64 string'),
+});
+
 // --- Dispute schemas ---
 
 export const submitDisputeBody = z.object({
@@ -288,13 +302,17 @@ export const resolveDisputeBody = z
   })
   .refine(
     (data) => {
-      if (data.action === 'RESOLVE_NEW_OUTCOME' && data.newWinningOutcome === undefined) {
+      if (
+        data.action === 'RESOLVE_NEW_OUTCOME' &&
+        data.newWinningOutcome === undefined
+      ) {
         return false;
       }
       return true;
     },
     {
-      message: 'New winning outcome is required when action is RESOLVE_NEW_OUTCOME',
+      message:
+        'New winning outcome is required when action is RESOLVE_NEW_OUTCOME',
       path: ['newWinningOutcome'],
     }
   );

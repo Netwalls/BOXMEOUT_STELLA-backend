@@ -9,6 +9,10 @@ import {
 } from '@stellar/stellar-sdk';
 import { AuthError } from '../types/auth.types.js';
 import { logger } from '../utils/logger.js';
+import {
+  userSignedTxService,
+  SubmitResult,
+} from './blockchain/user-tx.service.js';
 
 const STELLAR_HORIZON_URL =
   process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
@@ -221,6 +225,63 @@ export class StellarService {
    */
   looksLikePublicKey(str: string): boolean {
     return typeof str === 'string' && str.startsWith('G') && str.length === 56;
+  }
+
+  /**
+   * Validate and submit a user-signed Soroban transaction to the network.
+   *
+   * Error classification:
+   *   - Malformed XDR or invalid signature → throws XdrValidationError (maps to 400)
+   *   - Stellar network / RPC unreachable  → throws NetworkError (maps to 502)
+   *
+   * @param signedXdr   - Base64-encoded signed transaction XDR from the client
+   * @param userPublicKey - Stellar public key of the signing user
+   * @returns { transactionHash, status }
+   */
+  async submitSignedTransaction(
+    signedXdr: string,
+    userPublicKey: string
+  ): Promise<SubmitResult> {
+    // Step 1: Validate XDR is well-formed before hitting the network.
+    // decodeSignedXdr throws a plain Error with message starting "Invalid XDR"
+    // if the base64 cannot be decoded into a Transaction/FeeBumpTransaction.
+    try {
+      userSignedTxService.decodeSignedXdr(signedXdr);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Malformed XDR';
+      const e = new Error(msg) as Error & { code: string };
+      e.code = 'INVALID_XDR';
+      throw e;
+    }
+
+    // Step 2: Full validate + submit pipeline (signature check + Soroban RPC).
+    try {
+      return await userSignedTxService.validateAndSubmit(
+        signedXdr,
+        userPublicKey,
+        'submit-tx'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+
+      // Signature mismatch is a client error (400)
+      if (msg.startsWith('INVALID_SIGNATURE')) {
+        const e = new Error(msg) as Error & { code: string };
+        e.code = 'INVALID_SIGNATURE';
+        throw e;
+      }
+
+      // Everything else is a downstream network/RPC failure (502)
+      logger.error('StellarService.submitSignedTransaction network error', {
+        userPublicKey,
+        error: msg,
+      });
+      const e = new Error(`Stellar network error: ${msg}`) as Error & {
+        code: string;
+      };
+      e.code = 'NETWORK_ERROR';
+      throw e;
+    }
   }
 }
 

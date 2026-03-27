@@ -223,6 +223,10 @@ app.use('/api/treasury', treasuryRoutes);
 // Trading routes (user-signed)
 app.use('/api', tradingRoutes);
 
+// User-signed transaction submission
+import submitTxRoutes from './routes/submit-tx.routes.js';
+app.use('/api/trading', submitTxRoutes);
+
 // TODO: Add other routes as they are implemented
 // app.use('/api/users', userRoutes);
 // app.use('/api/leaderboard', leaderboardRoutes);

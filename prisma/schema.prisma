@@ -164,6 +164,7 @@ enum MarketCategory {
 enum MarketStatus {
   OPEN
   CLOSED
+  REPORTED
   RESOLVED
   DISPUTED
   CANCELLED

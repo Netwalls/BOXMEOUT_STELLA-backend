@@ -1,123 +1,169 @@
-// backend/src/routes/users.routes.ts - User Routes (THIN)
-// Route definitions only
+// backend/src/routes/users.routes.ts - User Routes
+import { Router, Response, NextFunction } from 'express';
+import { usersController } from '../controllers/users.controller.js';
+import { requireAuth } from '../middleware/auth.middleware.js';
+import { requireAdmin } from '../middleware/admin.middleware.js';
+import { AuthenticatedRequest } from '../types/auth.types.js';
+import { UserRepository } from '../repositories/user.repository.js';
 
-/*
-TODO: Route Layer - Thin Endpoint Definitions
-- Define user/auth endpoints
-- Call UsersController methods
-- Controllers handle validation and service calls
-*/
+const router = Router();
+const userRepository = new UserRepository();
 
-/*
-TODO: POST /api/auth/register
-- Router method: router.post('/register')
-- Call: UsersController.register(req, res)
-*/
+/**
+ * Middleware: reject suspended users on any authenticated request (issue #37)
+ */
+async function rejectSuspended(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  if (!req.user) return next();
+  const user = await userRepository.findById(req.user.userId);
+  if (user && !user.isActive) {
+    res.status(403).json({
+      success: false,
+      error: { code: 'ACCOUNT_SUSPENDED', message: 'Your account has been suspended' },
+    });
+    return;
+  }
+  next();
+}
 
-/*
-TODO: POST /api/auth/login
-- Router method: router.post('/login')
-- Call: UsersController.login(req, res)
-*/
+/**
+ * @swagger
+ * /api/users/me:
+ *   get:
+ *     summary: Get authenticated user's full profile
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Full user profile
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Account suspended
+ */
+router.get('/me', requireAuth, rejectSuspended, usersController.getMyProfile.bind(usersController));
 
-/*
-TODO: POST /api/auth/refresh
-- Router method: router.post('/refresh')
-- Call: UsersController.refreshToken(req, res)
-*/
+/**
+ * @swagger
+ * /api/users:
+ *   get:
+ *     summary: List all users (admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [BEGINNER, ADVANCED, EXPERT, LEGENDARY]
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, suspended]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Paginated user list
+ *       403:
+ *         description: Admin access required
+ */
+router.get('/', requireAuth, requireAdmin, usersController.listUsers.bind(usersController));
 
-/*
-TODO: POST /api/auth/logout
-- Router method: router.post('/logout')
-- Middleware: [authMiddleware]
-- Call: UsersController.logout(req, res)
-*/
+/**
+ * @swagger
+ * /api/users/{id}/suspend:
+ *   patch:
+ *     summary: Suspend a user account (admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User suspended
+ *       404:
+ *         description: User not found
+ *       403:
+ *         description: Admin access required
+ */
+router.patch('/:id/suspend', requireAuth, requireAdmin, usersController.suspendUser.bind(usersController));
 
-/*
-TODO: GET /api/users/:user_id
-- Router method: router.get('/:user_id')
-- Call: UsersController.getProfile(req, res)
-*/
+/**
+ * @swagger
+ * /api/users/{id}/role:
+ *   patch:
+ *     summary: Update user role (admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               role:
+ *                 type: string
+ *                 enum: [BEGINNER, ADVANCED, EXPERT, LEGENDARY]
+ *     responses:
+ *       200:
+ *         description: Role updated
+ *       400:
+ *         description: Invalid role
+ *       404:
+ *         description: User not found
+ */
+router.patch('/:id/role', requireAuth, requireAdmin, usersController.updateRole.bind(usersController));
 
-/*
-TODO: PUT /api/users/:user_id
-- Router method: router.put('/:user_id')
-- Middleware: [authMiddleware]
-- Call: UsersController.updateProfile(req, res)
-*/
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   get:
+ *     summary: Get public user profile
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Public user profile
+ *       404:
+ *         description: User not found
+ */
+router.get('/:id', usersController.getProfile.bind(usersController));
 
-/*
-TODO: GET /api/users/:user_id/wallet
-- Router method: router.get('/:user_id/wallet')
-- Middleware: [authMiddleware]
-- Call: UsersController.getWallet(req, res)
-*/
-
-/*
-TODO: POST /api/users/:user_id/wallet
-- Router method: router.post('/:user_id/wallet')
-- Middleware: [authMiddleware]
-- Call: UsersController.connectWallet(req, res)
-*/
-
-/*
-TODO: POST /api/users/:user_id/wallet/disconnect
-- Router method: router.post('/:user_id/wallet/disconnect')
-- Middleware: [authMiddleware]
-- Call: UsersController.disconnectWallet(req, res)
-*/
-
-/*
-TODO: POST /api/users/:user_id/deposit
-- Router method: router.post('/:user_id/deposit')
-- Middleware: [authMiddleware]
-- Call: UsersController.deposit(req, res)
-*/
-
-/*
-TODO: POST /api/users/:user_id/withdraw
-- Router method: router.post('/:user_id/withdraw')
-- Middleware: [authMiddleware]
-- Call: UsersController.withdraw(req, res)
-*/
-
-/*
-TODO: GET /api/users/:user_id/transactions
-- Router method: router.get('/:user_id/transactions')
-- Middleware: [authMiddleware]
-- Call: UsersController.getTransactionHistory(req, res)
-*/
-
-/*
-TODO: GET /api/users/:user_id/stats
-- Router method: router.get('/:user_id/stats')
-- Call: UsersController.getUserStats(req, res)
-*/
-
-/*
-TODO: GET /api/users/:user_id/achievements
-- Router method: router.get('/:user_id/achievements')
-- Call: UsersController.getUserAchievements(req, res)
-*/
-
-/*
-TODO: PUT /api/users/:user_id/preferences
-- Router method: router.put('/:user_id/preferences')
-- Middleware: [authMiddleware]
-- Call: UsersController.updatePreferences(req, res)
-*/
-
-/*
-TODO: GET /api/users/:user_id/referrals
-- Router method: router.get('/:user_id/referrals')
-- Middleware: [authMiddleware]
-- Call: UsersController.getReferrals(req, res)
-*/
-
-/*
-TODO: GET /api/users/search
-- Router method: router.get('/search')
-- Call: UsersController.searchUsers(req, res)
-*/
-
-export default {};
+export default router;

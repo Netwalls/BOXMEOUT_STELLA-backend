@@ -1,7 +1,10 @@
 // Leaderboard service - business logic for rankings and performance tracking
 import { LeaderboardRepository } from '../repositories/leaderboard.repository.js';
 import { MarketCategory } from '@prisma/client';
+import { getRedisClient } from '../config/redis.js';
 import { logger } from '../utils/logger.js';
+
+const CACHE_TTL = 300; // 5 minutes
 
 export class LeaderboardService {
   private leaderboardRepository: LeaderboardRepository;
@@ -29,10 +32,7 @@ export class LeaderboardService {
         isWin,
       });
 
-      // Update general leaderboard stats (all-time, weekly, streaks)
       await this.leaderboardRepository.updateUserStats(userId, pnl, isWin);
-
-      // Update category-specific stats
       await this.leaderboardRepository.updateCategoryStats(
         userId,
         category,
@@ -72,7 +72,6 @@ export class LeaderboardService {
     try {
       logger.info('Resetting weekly leaderboard stats');
       await this.leaderboardRepository.resetWeeklyStats();
-      // After reset, recalculate ranks to reflect 0 ranks
       await this.leaderboardRepository.updateAllRanks();
       return true;
     } catch (error) {
@@ -99,6 +98,50 @@ export class LeaderboardService {
       limit,
       offset
     );
+  }
+
+  /**
+   * GET /leaderboard — returns top 100 users with metric/period filtering, cached in Redis
+   */
+  async getRankedLeaderboard(params: {
+    metric: 'profit' | 'accuracy' | 'wins';
+    period: 'all' | 'weekly' | 'monthly';
+    limit?: number;
+  }) {
+    const { metric, period, limit = 100 } = params;
+    const cacheKey = `leaderboard:${metric}:${period}:${limit}`;
+
+    try {
+      const redis = getRedisClient();
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      logger.warn('Redis cache miss for leaderboard', { cacheKey, err });
+    }
+
+    const entries = await this.leaderboardRepository.getRanked({
+      metric,
+      period,
+      limit,
+    });
+
+    try {
+      const redis = getRedisClient();
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(entries));
+    } catch (err) {
+      logger.warn('Failed to cache leaderboard', { cacheKey, err });
+    }
+
+    return entries;
+  }
+
+  /**
+   * Returns the authenticated user's rank and stats
+   */
+  async getUserRank(userId: string) {
+    return await this.leaderboardRepository.getUserRank(userId);
   }
 }
 

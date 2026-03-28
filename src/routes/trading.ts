@@ -16,6 +16,14 @@ import {
 
 const router: Router = Router();
 
+/**
+ * POST /trading/buy
+ * Custom endpoint for buying shares with specific body format
+ */
+router.post('/buy', requireAuth, (req, res) =>
+  tradingController.buySharesNew(req, res)
+);
+
 // ─── Direct Trading / Admin-signed Routes ────────────────────────────────────
 // These are typically mounted at /api/markets
 

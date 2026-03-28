@@ -44,6 +44,93 @@ export class TradingController {
   }
 
   /**
+   * POST /trading/buy - Buy outcome shares (Direct/Admin-signed)
+   * Custom endpoint requested by user
+   */
+  async buySharesNew(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as AuthenticatedRequest).user?.userId;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required',
+          },
+        });
+        return;
+      }
+
+      const { marketId, outcomeId, collateralAmount, minSharesOut } = req.body;
+
+      if (!marketId || outcomeId === undefined || !collateralAmount) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'marketId, outcomeId, and collateralAmount are required',
+          },
+        });
+        return;
+      }
+
+      // Call service
+      const result = await tradingService.buyShares({
+        userId,
+        marketId,
+        outcome: Number(outcomeId),
+        amount: Number(collateralAmount),
+        minShares: minSharesOut ? Number(minSharesOut) : undefined,
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          sharesBought: result.sharesBought,
+          pricePerUnit: result.pricePerUnit,
+          totalCost: result.totalCost,
+          feeAmount: result.feeAmount,
+          txHash: result.txHash,
+          tradeId: result.tradeId,
+          position: result.newSharePosition,
+        },
+      });
+    } catch (error: any) {
+      console.error('Error buying shares (new):', error);
+
+      let statusCode = 500;
+      let errorCode = 'INTERNAL_ERROR';
+
+      if (error.message.includes('not found')) {
+        statusCode = 404;
+        errorCode = 'NOT_FOUND';
+      } else if (
+        error.message.includes('Insufficient') ||
+        error.message.includes('Invalid') ||
+        error.message.includes('only allowed') ||
+        error.message.includes('too small')
+      ) {
+        statusCode = 400;
+        errorCode = 'BAD_REQUEST';
+      } else if (error.message.includes('Slippage')) {
+        statusCode = 400;
+        errorCode = 'SLIPPAGE_EXCEEDED';
+      } else if (error.message.includes('blockchain')) {
+        statusCode = 503;
+        errorCode = 'BLOCKCHAIN_ERROR';
+      }
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: errorCode,
+          message: error.message || 'Failed to buy shares',
+        },
+      });
+    }
+  }
+
+  /**
    * POST /api/markets/:marketId/buy - Buy outcome shares (Direct/Admin-signed)
    */
   async buyShares(req: Request, res: Response): Promise<void> {

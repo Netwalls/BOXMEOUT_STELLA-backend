@@ -3,17 +3,48 @@ import {
   TreasuryBalances,
 } from './blockchain/treasury.js';
 import { TreasuryDistributionRepository } from '../repositories/treasury-distribution.repository.js';
-import { DistributionType, DistributionStatus } from '@prisma/client';
+import { MarketRepository } from '../repositories/market.repository.js';
+import { DistributionType, DistributionStatus, MarketStatus } from '@prisma/client';
 
 export class TreasuryService {
   private distributionRepository: TreasuryDistributionRepository;
+  private marketRepository: MarketRepository;
 
   constructor() {
     this.distributionRepository = new TreasuryDistributionRepository();
+    this.marketRepository = new MarketRepository();
   }
 
   async getBalances(): Promise<TreasuryBalances> {
     return await blockchainTreasuryService.getBalances();
+  }
+
+  async collectProtocolFees(marketId: string, initiatedBy: string) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) throw Object.assign(new Error('Market not found'), { code: 'NOT_FOUND' });
+
+    if (market.status !== MarketStatus.RESOLVED && market.status !== MarketStatus.CANCELLED) {
+      throw Object.assign(new Error('Market is not resolved or cancelled'), { code: 'INVALID_STATE' });
+    }
+
+    const { txHash, amountCollected } = await blockchainTreasuryService.collectProtocolFees(marketId);
+
+    if (!amountCollected || amountCollected === '0') {
+      throw Object.assign(new Error('Fee pool is empty'), { code: 'EMPTY_POOL' });
+    }
+
+    const distribution = await this.distributionRepository.createDistribution({
+      distributionType: DistributionType.PROTOCOL_FEE,
+      totalAmount: parseFloat(amountCollected),
+      recipientCount: 1,
+      txHash,
+      initiatedBy,
+      metadata: { marketId },
+    });
+
+    await this.distributionRepository.updateStatus(distribution.id, DistributionStatus.CONFIRMED);
+
+    return { distributionId: distribution.id, txHash, amountCollected };
   }
 
   async distributeLeaderboard(

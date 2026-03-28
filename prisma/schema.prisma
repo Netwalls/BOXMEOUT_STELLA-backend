@@ -561,6 +561,7 @@ model Distribution {
 enum DistributionType {
   LEADERBOARD
   CREATOR
+  PROTOCOL_FEE
 }
 
 enum DistributionStatus {

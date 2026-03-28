@@ -133,6 +133,7 @@ export async function updateNotificationPreferences(
       notifyMarketResolution,
       notifyWinnings,
       notifyAchievements,
+      notifyTradeFilled,
       emailNotifications,
     } = req.body;
 
@@ -143,6 +144,7 @@ export async function updateNotificationPreferences(
         notifyMarketResolution,
         notifyWinnings,
         notifyAchievements,
+        notifyTradeFilled,
         emailNotifications,
       }
     );
@@ -154,6 +156,7 @@ export async function updateNotificationPreferences(
         notifyMarketResolution: user.notifyMarketResolution,
         notifyWinnings: user.notifyWinnings,
         notifyAchievements: user.notifyAchievements,
+        notifyTradeFilled: user.notifyTradeFilled,
         emailNotifications: user.emailNotifications,
       },
     });
@@ -196,6 +199,7 @@ export async function getNotificationPreferences(
         notifyMarketResolution: user.notifyMarketResolution,
         notifyWinnings: user.notifyWinnings,
         notifyAchievements: user.notifyAchievements,
+        notifyTradeFilled: user.notifyTradeFilled,
         emailNotifications: user.emailNotifications,
       },
     });

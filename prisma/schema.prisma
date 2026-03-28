@@ -41,6 +41,7 @@ model User {
   notifyMarketResolution Boolean @default(true) @map("notify_market_resolution")
   notifyWinnings         Boolean @default(true) @map("notify_winnings")
   notifyAchievements     Boolean @default(true) @map("notify_achievements")
+  notifyTradeFilled      Boolean @default(true) @map("notify_trade_filled")
   emailNotifications     Boolean @default(false) @map("email_notifications")
 
   // Relations
@@ -101,6 +102,7 @@ enum NotificationType {
   MARKET_RESOLVED
   PREDICTION_RESULT
   WINNINGS_AVAILABLE
+  TRADE_FILLED
 }
 
 // ============================================================================

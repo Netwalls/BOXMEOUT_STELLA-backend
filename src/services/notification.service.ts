@@ -14,6 +14,12 @@ export interface NotificationPayload {
   metadata?: any;
 }
 
+export interface SendNotificationPayload {
+  title: string;
+  message: string;
+  metadata?: any;
+}
+
 export class NotificationService {
   private notificationRepository: NotificationRepository;
   private userRepository: UserRepository;
@@ -106,6 +112,11 @@ export class NotificationService {
         return user.notifyAchievements ?? true;
       case NotificationType.SYSTEM:
         return true; // Always send system notifications
+      case NotificationType.DISPUTE_FILED:
+      case NotificationType.DISPUTE_RESOLVED:
+      case NotificationType.TRADE_FILLED:
+      case NotificationType.REFUND_AVAILABLE:
+        return true; // Always deliver operational notifications
       default:
         return true;
     }
@@ -183,6 +194,60 @@ export class NotificationService {
     } catch (error) {
       logger.error('Failed to send email notification', { email, error });
     }
+  }
+
+  /**
+   * sendNotification — primary public API for creating and delivering a notification.
+   * Saves to DB and pushes via WebSocket if the user is connected.
+   */
+  async sendNotification(
+    userId: string,
+    type: NotificationType,
+    payload: SendNotificationPayload
+  ) {
+    return this.createNotification(
+      userId,
+      type,
+      payload.title,
+      payload.message,
+      payload.metadata
+    );
+  }
+
+  async notifyDisputeFiled(userId: string, marketTitle: string, disputeId: string) {
+    return this.sendNotification(userId, NotificationType.DISPUTE_FILED, {
+      title: '⚖️ Dispute Filed',
+      message: `A dispute has been filed on market "${marketTitle}".`,
+      metadata: { marketTitle, disputeId },
+    });
+  }
+
+  async notifyDisputeResolved(userId: string, marketTitle: string, resolution: string) {
+    return this.sendNotification(userId, NotificationType.DISPUTE_RESOLVED, {
+      title: '✅ Dispute Resolved',
+      message: `The dispute on market "${marketTitle}" has been resolved: ${resolution}`,
+      metadata: { marketTitle, resolution },
+    });
+  }
+
+  async notifyTradeFilled(userId: string, marketTitle: string, amount: number) {
+    return this.sendNotification(userId, NotificationType.TRADE_FILLED, {
+      title: '🔄 Trade Filled',
+      message: `Your trade of $${amount.toFixed(2)} on "${marketTitle}" has been filled.`,
+      metadata: { marketTitle, amount },
+    });
+  }
+
+  async notifyRefundAvailable(userId: string, marketTitle: string, amount: number) {
+    return this.sendNotification(userId, NotificationType.REFUND_AVAILABLE, {
+      title: '💸 Refund Available',
+      message: `A refund of $${amount.toFixed(2)} is available from "${marketTitle}".`,
+      metadata: { marketTitle, amount },
+    });
+  }
+
+  async notifySystem(userId: string, title: string, message: string, metadata?: any) {
+    return this.sendNotification(userId, NotificationType.SYSTEM, { title, message, metadata });
   }
 
   /**

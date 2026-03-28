@@ -101,6 +101,10 @@ enum NotificationType {
   MARKET_RESOLVED
   PREDICTION_RESULT
   WINNINGS_AVAILABLE
+  DISPUTE_FILED
+  DISPUTE_RESOLVED
+  TRADE_FILLED
+  REFUND_AVAILABLE
 }
 
 // ============================================================================

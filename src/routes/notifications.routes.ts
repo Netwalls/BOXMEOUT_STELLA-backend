@@ -15,7 +15,7 @@ const router = Router();
  * @swagger
  * /api/notifications:
  *   get:
- *     summary: Get user notifications
+ *     summary: Get user notifications (paginated, newest first)
  *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
@@ -25,37 +25,19 @@ const router = Router();
  *         schema:
  *           type: integer
  *           default: 20
- *         description: Maximum number of notifications to return
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
  *     responses:
  *       200:
- *         description: List of notifications
- *         content:
- *           application/json:
+ *         description: Paginated list of notifications
+ *         headers:
+ *           X-Unread-Count:
  *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: string
- *                       type:
- *                         type: string
- *                       title:
- *                         type: string
- *                       message:
- *                         type: string
- *                       isRead:
- *                         type: boolean
- *                       metadata:
- *                         type: object
- *                       createdAt:
- *                         type: string
- *                         format: date-time
+ *               type: integer
+ *             description: Number of unread notifications
  *       401:
  *         description: Unauthorized
  */
@@ -71,19 +53,7 @@ router.get('/', requireAuth, getUserNotifications);
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Unread notification count
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     count:
- *                       type: integer
+ *         description: Unread count
  *       401:
  *         description: Unauthorized
  */
@@ -100,26 +70,6 @@ router.get('/unread-count', requireAuth, getUnreadCount);
  *     responses:
  *       200:
  *         description: Notification preferences
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     notifyPredictionResult:
- *                       type: boolean
- *                     notifyMarketResolution:
- *                       type: boolean
- *                     notifyWinnings:
- *                       type: boolean
- *                     notifyAchievements:
- *                       type: boolean
- *                     emailNotifications:
- *                       type: boolean
  *       401:
  *         description: Unauthorized
  */
@@ -133,46 +83,9 @@ router.get('/preferences', requireAuth, getNotificationPreferences);
  *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               notifyPredictionResult:
- *                 type: boolean
- *               notifyMarketResolution:
- *                 type: boolean
- *               notifyWinnings:
- *                 type: boolean
- *               notifyAchievements:
- *                 type: boolean
- *               emailNotifications:
- *                 type: boolean
  *     responses:
  *       200:
- *         description: Preferences updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     notifyPredictionResult:
- *                       type: boolean
- *                     notifyMarketResolution:
- *                       type: boolean
- *                     notifyWinnings:
- *                       type: boolean
- *                     notifyAchievements:
- *                       type: boolean
- *                     emailNotifications:
- *                       type: boolean
+ *         description: Preferences updated
  *       401:
  *         description: Unauthorized
  */
@@ -180,64 +93,57 @@ router.put('/preferences', requireAuth, updateNotificationPreferences);
 
 /**
  * @swagger
- * /api/notifications/{notificationId}/read:
- *   put:
- *     summary: Mark notification as read
- *     tags: [Notifications]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: notificationId
- *         required: true
- *         schema:
- *           type: string
- *         description: Notification ID
- *     responses:
- *       200:
- *         description: Notification marked as read
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: Notification not found
- */
-router.put('/:notificationId/read', requireAuth, markNotificationRead);
-
-/**
- * @swagger
  * /api/notifications/read-all:
- *   put:
- *     summary: Mark all notifications as read
+ *   patch:
+ *     summary: Mark all unread notifications as read
  *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: All notifications marked as read
- *         content:
- *           application/json:
+ *         headers:
+ *           X-Unread-Count:
  *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     markedCount:
- *                       type: integer
+ *               type: integer
  *       401:
  *         description: Unauthorized
  */
+router.patch('/read-all', requireAuth, markAllNotificationsRead);
+
+/**
+ * @swagger
+ * /api/notifications/{id}/read:
+ *   patch:
+ *     summary: Mark a single notification as read
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ *         headers:
+ *           X-Unread-Count:
+ *             schema:
+ *               type: integer
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notification not found
+ */
+router.patch('/:id/read', requireAuth, markNotificationRead);
+
+// Legacy PUT aliases for backward compatibility
 router.put('/read-all', requireAuth, markAllNotificationsRead);
+router.put('/:notificationId/read', requireAuth, (req, res, next) => {
+  req.params.id = req.params.notificationId;
+  next();
+}, markNotificationRead);
 
 export default router;

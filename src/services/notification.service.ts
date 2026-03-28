@@ -286,8 +286,12 @@ export class NotificationService {
     );
   }
 
-  async getUserNotifications(userId: string, limit?: number) {
-    return await this.notificationRepository.findByUserId(userId, limit);
+  async getUserNotifications(userId: string, limit?: number, offset?: number) {
+    return await this.notificationRepository.findByUserId(userId, limit, offset);
+  }
+
+  async countUserNotifications(userId: string) {
+    return await this.notificationRepository.countByUserId(userId);
   }
 
   async markRead(notificationId: string) {

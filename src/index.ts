@@ -227,9 +227,11 @@ app.use('/api', tradingRoutes);
 import submitTxRoutes from './routes/submit-tx.routes.js';
 app.use('/api/trading', submitTxRoutes);
 
+// Users routes
+import usersRoutes from './routes/users.routes.js';
+app.use('/api/users', usersRoutes);
+
 // TODO: Add other routes as they are implemented
-// app.use('/api/users', userRoutes);
-// app.use('/api/leaderboard', leaderboardRoutes);
 // Referral routes
 app.use('/api/referrals', referralsRoutes);
 

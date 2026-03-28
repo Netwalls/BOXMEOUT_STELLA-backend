@@ -205,4 +205,113 @@ export class LeaderboardRepository extends BaseRepository<Leaderboard> {
       throw toRepositoryError(this.getModelName(), err);
     }
   }
+
+  /**
+   * Returns ranked leaderboard entries shaped per issue #33 spec.
+   * metric: profit | accuracy | wins
+   * period: all | weekly | monthly
+   */
+  async getRanked(params: {
+    metric: 'profit' | 'accuracy' | 'wins';
+    period: 'all' | 'weekly' | 'monthly';
+    limit: number;
+  }) {
+    try {
+      const { metric, period, limit } = params;
+
+      // For monthly period we filter predictions within the last 30 days
+      const monthAgo = new Date();
+      monthAgo.setDate(monthAgo.getDate() - 30);
+
+      // Build order-by field
+      const orderByField =
+        metric === 'profit'
+          ? period === 'weekly'
+            ? 'weeklyPnl'
+            : 'allTimePnl'
+          : metric === 'accuracy'
+            ? period === 'weekly'
+              ? 'weeklyWinRate'
+              : 'allTimeWinRate'
+            : 'predictionCount'; // wins → predictionCount as proxy
+
+      const rows = await this.prisma.leaderboard.findMany({
+        orderBy: { [orderByField]: 'desc' },
+        take: limit,
+        include: {
+          user: {
+            select: {
+              username: true,
+              avatarUrl: true,
+              predictions: {
+                where: {
+                  status: 'SETTLED',
+                  ...(period === 'monthly'
+                    ? { settledAt: { gte: monthAgo } }
+                    : {}),
+                },
+                select: { isWinner: true, pnlUsd: true },
+              },
+            },
+          },
+        },
+      });
+
+      return rows.map((row, idx) => {
+        const preds = row.user.predictions;
+        const winCount = preds.filter((p) => p.isWinner).length;
+        const totalPredictions = preds.length;
+        const accuracy =
+          totalPredictions > 0 ? (winCount / totalPredictions) * 100 : 0;
+        const totalProfit = preds.reduce(
+          (sum, p) => sum + Number(p.pnlUsd ?? 0),
+          0
+        );
+
+        return {
+          rank: idx + 1,
+          username: row.user.username,
+          avatarUrl: row.user.avatarUrl,
+          totalProfit,
+          accuracy,
+          winCount,
+          totalPredictions,
+        };
+      });
+    } catch (err) {
+      throw toRepositoryError(this.getModelName(), err);
+    }
+  }
+
+  /**
+   * Returns the authenticated user's rank and stats (issue #34)
+   */
+  async getUserRank(userId: string) {
+    try {
+      const entry = await this.prisma.leaderboard.findUnique({
+        where: { userId },
+      });
+
+      if (!entry) {
+        return null;
+      }
+
+      // Count total users for percentile
+      const totalUsers = await this.prisma.leaderboard.count();
+      const percentile =
+        totalUsers > 0
+          ? ((totalUsers - entry.globalRank) / totalUsers) * 100
+          : 0;
+
+      return {
+        rank: entry.globalRank,
+        totalProfit: Number(entry.allTimePnl),
+        accuracy: Number(entry.allTimeWinRate),
+        winCount: entry.predictionCount, // approximation; exact wins tracked via predictions
+        percentile: Math.round(percentile * 100) / 100,
+      };
+    } catch (err) {
+      throw toRepositoryError(this.getModelName(), err);
+    }
+  }
 }

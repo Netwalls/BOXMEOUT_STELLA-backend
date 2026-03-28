@@ -130,4 +130,149 @@ export class UserRepository extends BaseRepository<User> {
       };
     });
   }
+
+  /**
+   * Returns public profile fields for any user (issue #35)
+   */
+  async getPublicProfile(userId: string) {
+    return this.timedQuery('getPublicProfile', async () => {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          username: true,
+          avatarUrl: true,
+          createdAt: true,
+        },
+      });
+
+      if (!user) return null;
+
+      const [predictionCount, winCount] = await Promise.all([
+        this.prisma.prediction.count({ where: { userId, status: 'SETTLED' } }),
+        this.prisma.prediction.count({
+          where: { userId, status: 'SETTLED', isWinner: true },
+        }),
+      ]);
+
+      return {
+        ...user,
+        totalPredictions: predictionCount,
+        winRate: predictionCount > 0 ? (winCount / predictionCount) * 100 : 0,
+      };
+    });
+  }
+
+  /**
+   * Returns full profile for the authenticated user (issue #35)
+   */
+  async getFullProfile(userId: string) {
+    return this.timedQuery('getFullProfile', async () => {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          avatarUrl: true,
+          walletAddress: true,
+          tier: true,
+          createdAt: true,
+          referralsGiven: {
+            take: 1,
+            select: { referralCode: true },
+          },
+        },
+      });
+
+      if (!user) return null;
+
+      const [predictionCount, winCount] = await Promise.all([
+        this.prisma.prediction.count({ where: { userId, status: 'SETTLED' } }),
+        this.prisma.prediction.count({
+          where: { userId, status: 'SETTLED', isWinner: true },
+        }),
+      ]);
+
+      const { referralsGiven, ...rest } = user;
+      return {
+        ...rest,
+        referralCode: referralsGiven[0]?.referralCode ?? null,
+        totalPredictions: predictionCount,
+        winRate: predictionCount > 0 ? (winCount / predictionCount) * 100 : 0,
+      };
+    });
+  }
+
+  /**
+   * Paginated user list for admin (issue #37)
+   */
+  async listUsers(params: {
+    page: number;
+    limit: number;
+    role?: UserTier;
+    status?: 'active' | 'suspended';
+    search?: string;
+  }) {
+    return this.timedQuery('listUsers', async () => {
+      const { page, limit, role, status, search } = params;
+      const skip = (page - 1) * limit;
+
+      const where: Prisma.UserWhereInput = {};
+      if (role) where.tier = role;
+      if (status === 'active') where.isActive = true;
+      if (status === 'suspended') where.isActive = false;
+      if (search) {
+        where.OR = [
+          { username: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ];
+      }
+
+      const [users, total] = await Promise.all([
+        this.prisma.user.findMany({
+          where,
+          skip,
+          take: limit,
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            tier: true,
+            isActive: true,
+            createdAt: true,
+            lastLogin: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.user.count({ where }),
+      ]);
+
+      return { users, total, page, limit };
+    });
+  }
+
+  /**
+   * Suspend a user account (issue #37)
+   */
+  async suspendUser(userId: string): Promise<User> {
+    return this.timedQuery('suspendUser', () =>
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { isActive: false },
+      })
+    );
+  }
+
+  /**
+   * Update user role/tier (issue #37)
+   */
+  async updateRole(userId: string, role: UserTier): Promise<User> {
+    return this.timedQuery('updateRole', () =>
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { tier: role },
+      })
+    );
+  }
 }

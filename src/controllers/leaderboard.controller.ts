@@ -2,9 +2,62 @@
 import { Request, Response } from 'express';
 import { leaderboardService } from '../services/leaderboard.service.js';
 import { MarketCategory } from '@prisma/client';
+import { AuthenticatedRequest } from '../types/auth.types.js';
 import { logger } from '../utils/logger.js';
 
 export class LeaderboardController {
+  /**
+   * GET /api/leaderboard
+   * Public. Query params: metric (profit|accuracy|wins), period (all|weekly|monthly)
+   */
+  async getLeaderboard(req: Request, res: Response) {
+    try {
+      const metric = (req.query.metric as string) || 'profit';
+      const period = (req.query.period as string) || 'all';
+
+      const validMetrics = ['profit', 'accuracy', 'wins'];
+      const validPeriods = ['all', 'weekly', 'monthly'];
+
+      if (!validMetrics.includes(metric)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid metric. Use: profit, accuracy, wins' });
+      }
+      if (!validPeriods.includes(period)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid period. Use: all, weekly, monthly' });
+      }
+
+      const entries = await leaderboardService.getRankedLeaderboard({
+        metric: metric as 'profit' | 'accuracy' | 'wins',
+        period: period as 'all' | 'weekly' | 'monthly',
+        limit: 100,
+      });
+
+      return res.status(200).json({ success: true, data: entries });
+    } catch (error) {
+      logger.error('LeaderboardController.getLeaderboard error', { error });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  }
+
+  /**
+   * GET /api/leaderboard/me
+   * Requires auth. Returns authenticated user's rank and stats.
+   */
+  async getMyRank(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.user!.userId;
+      const rank = await leaderboardService.getUserRank(userId);
+
+      return res.status(200).json({ success: true, data: rank });
+    } catch (error) {
+      logger.error('LeaderboardController.getMyRank error', { error });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  }
+
   /**
    * GET /api/leaderboard/global
    */
@@ -13,10 +66,7 @@ export class LeaderboardController {
       const limit = parseInt(req.query.limit as string) || 100;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      const leaderboard = await leaderboardService.getGlobalLeaderboard(
-        limit,
-        offset
-      );
+      const leaderboard = await leaderboardService.getGlobalLeaderboard(limit, offset);
 
       return res.status(200).json({
         success: true,
@@ -25,9 +75,7 @@ export class LeaderboardController {
       });
     } catch (error) {
       logger.error('LeaderboardController.getGlobal error', { error });
-      return res
-        .status(500)
-        .json({ success: false, message: 'Internal server error' });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
     }
   }
 
@@ -39,10 +87,7 @@ export class LeaderboardController {
       const limit = parseInt(req.query.limit as string) || 100;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      const leaderboard = await leaderboardService.getWeeklyLeaderboard(
-        limit,
-        offset
-      );
+      const leaderboard = await leaderboardService.getWeeklyLeaderboard(limit, offset);
 
       return res.status(200).json({
         success: true,
@@ -51,9 +96,7 @@ export class LeaderboardController {
       });
     } catch (error) {
       logger.error('LeaderboardController.getWeekly error', { error });
-      return res
-        .status(500)
-        .json({ success: false, message: 'Internal server error' });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
     }
   }
 
@@ -67,9 +110,7 @@ export class LeaderboardController {
       const offset = parseInt(req.query.offset as string) || 0;
 
       if (!Object.values(MarketCategory).includes(category as MarketCategory)) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Invalid category' });
+        return res.status(400).json({ success: false, message: 'Invalid category' });
       }
 
       const leaderboard = await leaderboardService.getCategoryLeaderboard(
@@ -85,9 +126,7 @@ export class LeaderboardController {
       });
     } catch (error) {
       logger.error('LeaderboardController.getByCategory error', { error });
-      return res
-        .status(500)
-        .json({ success: false, message: 'Internal server error' });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
     }
   }
 }

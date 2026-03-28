@@ -62,19 +62,73 @@ router.post(
  * @swagger
  * /api/disputes:
  *   get:
- *     summary: List all disputes
+ *     summary: List all disputes (Admin only)
  *     tags: [Disputes]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - name: status
  *         in: query
  *         schema:
  *           type: string
  *           enum: [OPEN, REVIEWING, RESOLVED, DISMISSED]
+ *         description: Filter by dispute status
+ *       - name: marketId
+ *         in: query
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Filter by market ID
+ *       - name: page
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of items per page
  *     responses:
  *       200:
- *         description: List of disputes
+ *         description: Paginated list of disputes
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 disputes:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Dispute'
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                     hasNext:
+ *                       type: boolean
+ *                     hasPrev:
+ *                       type: boolean
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
  */
-router.get('/', (req, res) => disputesController.listDisputes(req, res));
+router.get('/', requireAuth, requireAdmin, (req, res) =>
+  disputesController.listDisputes(req, res)
+);
 
 /**
  * @swagger

@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from '../types/auth.types.js';
 import { DisputeService } from '../services/dispute.service.js';
 import { logger } from '../utils/logger.js';
 import { DisputeStatus } from '@prisma/client';
+import { DisputeListOptions } from '../repositories/dispute.repository.js';
 
 class DisputesController {
   private disputeService: DisputeService;
@@ -136,14 +137,41 @@ class DisputesController {
   }
 
   /**
-   * GET /api/disputes - List disputes
+   * GET /api/disputes - List disputes (Admin only)
    */
   async listDisputes(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const status = req.query.status as DisputeStatus | undefined;
-      const disputes = await this.disputeService.listDisputes(status);
-      res.status(200).json(disputes);
+      // Parse query parameters
+      const options: DisputeListOptions = {
+        status: req.query.status as DisputeStatus | undefined,
+        marketId: req.query.marketId as string | undefined,
+        page: req.query.page ? parseInt(req.query.page as string) : undefined,
+        limit: req.query.limit ? parseInt(req.query.limit as string) : undefined,
+      };
+
+      // Validate pagination parameters
+      if (options.page && (options.page < 1 || isNaN(options.page))) {
+        res.status(400).json({ error: 'Page must be a positive integer' });
+        return;
+      }
+
+      if (options.limit && (options.limit < 1 || options.limit > 100 || isNaN(options.limit))) {
+        res.status(400).json({ error: 'Limit must be between 1 and 100' });
+        return;
+      }
+
+      // Validate status parameter
+      if (options.status && !Object.values(DisputeStatus).includes(options.status)) {
+        res.status(400).json({ 
+          error: 'Invalid status. Must be one of: OPEN, REVIEWING, RESOLVED, DISMISSED' 
+        });
+        return;
+      }
+
+      const result = await this.disputeService.listDisputes(options);
+      res.status(200).json(result);
     } catch (error: any) {
+      logger.error('Error listing disputes', { error: error.message });
       res.status(400).json({ error: error.message });
     }
   }

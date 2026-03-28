@@ -10,6 +10,19 @@ import {
 import { verifyRefreshToken } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 
+// Define interface for registration request
+interface RegisterRequest {
+  email: string;
+  username: string;
+  password: string;
+}
+
+// Define interface for email login request
+interface EmailLoginRequest {
+  email: string;
+  password: string;
+}
+
 /**
  * Authentication Controller
  * Handles HTTP requests for authentication endpoints
@@ -64,6 +77,51 @@ export class AuthController {
       res.status(200).json({
         success: true,
         data: challenge,
+      });
+    } catch (error) {
+      this.handleError(error, res);
+    }
+  }
+
+  /**
+   * POST /api/auth/register
+   * Register a new user with email and password
+   * Validates email uniqueness, hashes password, creates user record, returns JWT pair
+   */
+  async register(req: Request, res: Response): Promise<void> {
+    try {
+      const registerRequest = req.body as RegisterRequest;
+
+      const result = await authService.register(registerRequest);
+
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      this.handleError(error, res);
+    }
+  }
+
+  /**
+   * POST /api/auth/email-login
+   * Login with email and password
+   * Validates credentials, returns JWT pair
+   */
+  async emailLogin(req: Request, res: Response): Promise<void> {
+    try {
+      const loginRequest = req.body as EmailLoginRequest;
+
+      const metadata = {
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+      };
+
+      const result = await authService.emailLogin(loginRequest, metadata);
+
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       this.handleError(error, res);

@@ -159,16 +159,36 @@ export class DisputeService {
   }
 
   async getDisputeDetails(disputeId: string) {
-    return await this.disputeRepository.findById(disputeId);
+    return await this.disputeRepository.findById(disputeId, {
+      include: {
+        market: {
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            status: true,
+            winningOutcome: true,
+            resolvedAt: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            username: true,
+            walletAddress: true,
+          },
+        },
+      },
+    });
   }
 
-  async listDisputes(status?: DisputeStatus) {
-    if (status) {
-      return await this.disputeRepository.findByStatus(status);
-    }
-    return await this.disputeRepository.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
+  async listDisputes(options: {
+    status?: DisputeStatus;
+    marketId?: string;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    return await this.disputeRepository.listDisputes(options);
   }
 }
 

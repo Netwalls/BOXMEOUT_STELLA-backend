@@ -11,6 +11,11 @@ import { ApiError } from '../middleware/error.middleware.js';
 
 const tradeRepository = new TradeRepository();
 
+interface QuoteCacheEntry {
+  result: any;
+  timestamp: number;
+}
+
 interface BuySharesParams {
   userId: string;
   marketId: string;
@@ -61,6 +66,62 @@ interface MarketOddsResult {
 }
 
 export class TradingService {
+  private quoteCache: Map<string, QuoteCacheEntry> = new Map();
+  private readonly CACHE_TTL_MS = 2000; // 2 seconds
+
+  /**
+   * Get a read-only quote for a buy/sell trade
+   */
+  async getQuote(params: {
+    marketId: string;
+    outcome: number;
+    amount: number;
+    side: 'buy' | 'sell';
+  }): Promise<any> {
+    const { marketId, outcome, amount, side } = params;
+    const cacheKey = `${marketId}-${outcome}-${amount}-${side}`;
+    
+    // Check cache
+    const cached = this.quoteCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      return cached.result;
+    }
+
+    const isBuy = side === 'buy';
+    
+    try {
+      const quote = await ammService.getTradeQuote({
+        marketId,
+        outcome,
+        amount,
+        isBuy,
+      });
+
+      const result = {
+        [isBuy ? 'sharesOut' : 'collateralOut']: quote.sharesReceived,
+        avgPriceBps: Math.round(quote.pricePerUnit * 10000),
+        priceImpactBps: quote.priceImpactBps,
+        totalFees: quote.feeAmount,
+      };
+      
+      // Save to cache
+      this.quoteCache.set(cacheKey, {
+        result,
+        timestamp: Date.now(),
+      });
+
+      // Cleanup old cache entries (simple logic)
+      if (this.quoteCache.size > 1000) {
+        this.quoteCache.clear();
+      }
+
+      return result;
+    } catch (error) {
+      // Don't cache errors
+      throw error;
+    }
+  }
+
   /**
    * Build unsigned transaction for buying shares
    */

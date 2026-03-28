@@ -24,6 +24,12 @@ router.post('/buy', requireAuth, (req, res) =>
   tradingController.buySharesNew(req, res)
 );
 
+/**
+ * GET /trading/quote
+ * Preview trade results (Read-only)
+ */
+router.get('/quote', (req, res) => tradingController.getQuote(req, res));
+
 // ─── Direct Trading / Admin-signed Routes ────────────────────────────────────
 // These are typically mounted at /api/markets
 

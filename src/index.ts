@@ -231,6 +231,10 @@ app.use('/api/trading', submitTxRoutes);
 import usersRoutes from './routes/users.routes.js';
 app.use('/api/users', usersRoutes);
 
+// Predictions routes (user predictions, issue #21)
+import predictionsRoutes from './routes/predictions.routes.js';
+app.use('/api/predictions', predictionsRoutes);
+
 // TODO: Add other routes as they are implemented
 // Referral routes
 app.use('/api/referrals', referralsRoutes);

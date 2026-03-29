@@ -374,3 +374,23 @@ export const getTransactionsQuery = z.object({
     .datetime()
     .optional(),
 });
+
+// --- Predictions: GET /predictions query schema (issue #21) ---
+
+export const getUserPredictionsQuery = z.object({
+  status: z.enum(['pending', 'won', 'lost']).optional(),
+  page: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .refine((v) => v >= 1, 'page must be >= 1')
+    .optional()
+    .default('1'),
+  limit: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .refine((v) => v >= 1 && v <= 100, 'limit must be between 1 and 100')
+    .optional()
+    .default('20'),
+});

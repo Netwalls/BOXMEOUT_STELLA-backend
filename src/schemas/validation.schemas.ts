@@ -380,6 +380,17 @@ export const getTransactionsQuery = z.object({
     .optional(),
 });
 
+// --- Predictions: POST /predictions body schema ---
+
+export const placePredictionBody = z.object({
+  marketId: z.string().uuid(),
+  outcomeId: z.number().int().min(0).max(1),
+  confidence: z
+    .number()
+    .positive('Confidence must be positive')
+    .max(1_000_000, 'Confidence exceeds maximum'),
+});
+
 // --- Predictions: GET /predictions query schema (issue #21) ---
 
 export const getUserPredictionsQuery = z.object({

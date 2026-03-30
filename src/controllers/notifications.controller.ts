@@ -109,6 +109,27 @@ export async function getNotificationPreferences(
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
+    const userId = req.user!.userId;
+    const {
+      notifyPredictionResult,
+      notifyMarketResolution,
+      notifyWinnings,
+      notifyAchievements,
+      notifyTradeFilled,
+      emailNotifications,
+    } = req.body;
+
+    const user = await notificationService.updateNotificationPreferences(
+      userId,
+      {
+        notifyPredictionResult,
+        notifyMarketResolution,
+        notifyWinnings,
+        notifyAchievements,
+        notifyTradeFilled,
+        emailNotifications,
+      }
+    );
 
     res.json({
       success: true,
@@ -117,6 +138,7 @@ export async function getNotificationPreferences(
         notifyMarketResolution: user.notifyMarketResolution,
         notifyWinnings: user.notifyWinnings,
         notifyAchievements: user.notifyAchievements,
+        notifyTradeFilled: user.notifyTradeFilled,
         emailNotifications: user.emailNotifications,
       },
     });
@@ -157,6 +179,7 @@ export async function updateNotificationPreferences(
         notifyMarketResolution: user.notifyMarketResolution,
         notifyWinnings: user.notifyWinnings,
         notifyAchievements: user.notifyAchievements,
+        notifyTradeFilled: user.notifyTradeFilled,
         emailNotifications: user.emailNotifications,
       },
     });

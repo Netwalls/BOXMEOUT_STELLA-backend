@@ -78,7 +78,7 @@ router.get('/preferences', requireAuth, getNotificationPreferences);
 /**
  * @swagger
  * /api/notifications/preferences:
- *   put:
+ *   patch:
  *     summary: Update notification preferences
  *     tags: [Notifications]
  *     security:
@@ -86,9 +86,54 @@ router.get('/preferences', requireAuth, getNotificationPreferences);
  *     responses:
  *       200:
  *         description: Preferences updated
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               notifyPredictionResult:
+ *                 type: boolean
+ *               notifyMarketResolution:
+ *                 type: boolean
+ *               notifyWinnings:
+ *                 type: boolean
+ *               notifyAchievements:
+ *                 type: boolean
+ *               notifyTradeFilled:
+ *                 type: boolean
+ *               emailNotifications:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     notifyPredictionResult:
+ *                       type: boolean
+ *                     notifyMarketResolution:
+ *                       type: boolean
+ *                     notifyWinnings:
+ *                       type: boolean
+ *                     notifyAchievements:
+ *                       type: boolean
+ *                     notifyTradeFilled:
+ *                       type: boolean
+ *                     emailNotifications:
+ *                       type: boolean
  *       401:
  *         description: Unauthorized
  */
+router.patch('/preferences', requireAuth, updateNotificationPreferences);
 router.put('/preferences', requireAuth, updateNotificationPreferences);
 
 /**

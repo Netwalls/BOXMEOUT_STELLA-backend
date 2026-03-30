@@ -12,6 +12,8 @@ import {
   loginBody,
   refreshBody,
   logoutBody,
+  registerBody,
+  emailLoginBody,
 } from '../schemas/validation.schemas.js';
 
 const router: Router = Router();
@@ -88,6 +90,114 @@ router.post(
  */
 router.get('/challenge', challengeRateLimiter, (req, res) =>
   authController.challengeGet(req, res)
+);
+
+/**
+ * @swagger
+ * /api/auth/register:
+ *   post:
+ *     summary: Register a new user
+ *     description: Register a new user with email and password. Validates email uniqueness, hashes password with bcrypt, creates user record, returns JWT pair.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - username
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address (must be unique)
+ *               username:
+ *                 type: string
+ *                 minLength: 3
+ *                 maxLength: 50
+ *                 description: Unique username
+ *               password:
+ *                 type: string
+ *                 minLength: 8
+ *                 maxLength: 128
+ *                 description: Password with at least one uppercase, lowercase, number, and special character
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: Bad request (validation error or duplicate email/username)
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+router.post(
+  '/register',
+  authRateLimiter,
+  validate({ body: registerBody }),
+  (req, res) => authController.register(req, res)
+);
+
+/**
+ * @swagger
+ * /api/auth/email-login:
+ *   post:
+ *     summary: Login with email and password
+ *     description: Authenticate with email and password credentials. Returns access_token (15 min) and refresh_token (7 days).
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *               password:
+ *                 type: string
+ *                 description: User password
+ *     responses:
+ *       200:
+ *         description: Authentication successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         description: Invalid credentials
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ */
+router.post(
+  '/email-login',
+  authRateLimiter,
+  validate({ body: emailLoginBody }),
+  (req, res) => authController.emailLogin(req, res)
 );
 
 /**

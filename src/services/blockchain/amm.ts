@@ -857,16 +857,14 @@ export class AmmService extends BaseBlockchainService {
     }
 
     try {
-      // Expected return format: { shares_received, price_per_unit, total_cost, fee_amount }
+      // Expected return format from TradeReceipt: { collateral_delta, shares_delta, avg_price_bps, total_fees, new_price_bps }
       const result = scValToNative(returnValue);
 
       return {
-        sharesReceived: Number(
-          result.shares_received || result.sharesReceived || 0
-        ),
-        pricePerUnit: Number(result.price_per_unit || result.pricePerUnit || 0),
-        totalCost: Number(result.total_cost || result.totalCost || 0),
-        feeAmount: Number(result.fee_amount || result.feeAmount || 0),
+        sharesReceived: Number(result.shares_delta || 0),
+        pricePerUnit: Number(result.avg_price_bps || 0) / 10000, 
+        totalCost: Number(result.collateral_delta || 0),
+        feeAmount: Number(result.total_fees || 0),
       };
     } catch (error) {
       logger.error('Error parsing buy shares result', { error });

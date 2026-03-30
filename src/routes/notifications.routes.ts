@@ -128,7 +128,7 @@ router.get('/preferences', requireAuth, getNotificationPreferences);
 /**
  * @swagger
  * /api/notifications/preferences:
- *   put:
+ *   patch:
  *     summary: Update notification preferences
  *     tags: [Notifications]
  *     security:
@@ -147,6 +147,8 @@ router.get('/preferences', requireAuth, getNotificationPreferences);
  *               notifyWinnings:
  *                 type: boolean
  *               notifyAchievements:
+ *                 type: boolean
+ *               notifyTradeFilled:
  *                 type: boolean
  *               emailNotifications:
  *                 type: boolean
@@ -171,11 +173,14 @@ router.get('/preferences', requireAuth, getNotificationPreferences);
  *                       type: boolean
  *                     notifyAchievements:
  *                       type: boolean
+ *                     notifyTradeFilled:
+ *                       type: boolean
  *                     emailNotifications:
  *                       type: boolean
  *       401:
  *         description: Unauthorized
  */
+router.patch('/preferences', requireAuth, updateNotificationPreferences);
 router.put('/preferences', requireAuth, updateNotificationPreferences);
 
 /**

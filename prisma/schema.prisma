@@ -41,6 +41,7 @@ model User {
   notifyMarketResolution Boolean @default(true) @map("notify_market_resolution")
   notifyWinnings         Boolean @default(true) @map("notify_winnings")
   notifyAchievements     Boolean @default(true) @map("notify_achievements")
+  notifyTradeFilled      Boolean @default(true) @map("notify_trade_filled")
   emailNotifications     Boolean @default(false) @map("email_notifications")
 
   // Relations
@@ -105,6 +106,7 @@ enum NotificationType {
   DISPUTE_RESOLVED
   TRADE_FILLED
   REFUND_AVAILABLE
+  TRADE_FILLED
 }
 
 // ============================================================================
@@ -168,6 +170,7 @@ enum MarketCategory {
 enum MarketStatus {
   OPEN
   CLOSED
+  REPORTED
   RESOLVED
   DISPUTED
   CANCELLED
@@ -565,6 +568,7 @@ model Distribution {
 enum DistributionType {
   LEADERBOARD
   CREATOR
+  PROTOCOL_FEE
 }
 
 enum DistributionStatus {

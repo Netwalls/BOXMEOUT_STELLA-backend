@@ -55,6 +55,33 @@ export const marketIdParam = z.object({
 
 // --- Auth schemas ---
 
+export const emailSchema = z
+  .string()
+  .email('Invalid email format')
+  .min(5, 'Email must be at least 5 characters')
+  .max(254, 'Email must be less than 254 characters');
+
+export const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password must be less than 128 characters')
+  .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+  .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+  .regex(/[0-9]/, 'Password must contain at least one number')
+  .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character');
+
+export const registerBody = z.object({
+  email: emailSchema,
+  username: sanitizedString(3, 50),
+  password: passwordSchema,
+  referralCode: z.string().optional(),
+});
+
+export const emailLoginBody = z.object({
+  email: emailSchema,
+  password: z.string().min(1, 'Password is required'),
+});
+
 export const challengeBody = z.object({
   publicKey: stellarAddress,
 });
@@ -219,6 +246,10 @@ export const attestBody = z.object({
   outcome: z.number().int().min(0).max(1),
 });
 
+export const resolveMarketBody = z.object({
+  outcome: z.number().int().min(0).max(1),
+});
+
 // --- Treasury schemas ---
 
 export const distributeLeaderboardBody = z.object({
@@ -316,3 +347,66 @@ export const resolveDisputeBody = z
       path: ['newWinningOutcome'],
     }
   );
+
+// --- Wallet schemas ---
+
+export const getBalanceQuery = z.object({}).strict();
+
+export const getTransactionsQuery = z.object({
+  page: z
+    .string()
+    .regex(/^\d+$/, 'page must be a number')
+    .transform(Number)
+    .refine((val) => val >= 1, 'page must be >= 1')
+    .optional()
+    .default('1'),
+  limit: z
+    .string()
+    .regex(/^\d+$/, 'limit must be a number')
+    .transform(Number)
+    .refine((val) => val >= 1 && val <= 100, 'limit must be between 1 and 100')
+    .optional()
+    .default('20'),
+  type: z
+    .enum(['DEPOSIT', 'WITHDRAW', 'REWARD', 'REFUND'])
+    .optional(),
+  from: z
+    .string()
+    .datetime()
+    .optional(),
+  to: z
+    .string()
+    .datetime()
+    .optional(),
+});
+
+// --- Predictions: POST /predictions body schema ---
+
+export const placePredictionBody = z.object({
+  marketId: z.string().uuid(),
+  outcomeId: z.number().int().min(0).max(1),
+  confidence: z
+    .number()
+    .positive('Confidence must be positive')
+    .max(1_000_000, 'Confidence exceeds maximum'),
+});
+
+// --- Predictions: GET /predictions query schema (issue #21) ---
+
+export const getUserPredictionsQuery = z.object({
+  status: z.enum(['pending', 'won', 'lost']).optional(),
+  page: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .refine((v) => v >= 1, 'page must be >= 1')
+    .optional()
+    .default('1'),
+  limit: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .refine((v) => v >= 1 && v <= 100, 'limit must be between 1 and 100')
+    .optional()
+    .default('20'),
+});

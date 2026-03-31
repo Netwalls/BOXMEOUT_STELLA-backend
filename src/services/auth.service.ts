@@ -1,6 +1,7 @@
 import { UserRepository } from '../repositories/user.repository.js';
 import { StellarService, stellarService } from './stellar.service.js';
 import { SessionService, sessionService } from './session.service.js';
+import bcrypt from 'bcrypt';
 import {
   signAccessToken,
   signRefreshToken,
@@ -58,6 +59,183 @@ export class AuthService {
       nonce: nonceData.nonce,
       message: nonceData.message,
       expiresAt: nonceData.expiresAt,
+    };
+  }
+
+  /**
+   * Register a new user with email and password
+   * Validates email uniqueness, hashes password, creates user record, returns JWT pair
+   */
+  async register(data: {
+    email: string;
+    username: string;
+    password: string;
+    referralCode?: string;
+  }): Promise<LoginResponse> {
+    const { email, username, password, referralCode } = data;
+
+    // Check if email already exists
+    const existingUser = await this.userRepository.findByEmail(email);
+    if (existingUser) {
+      throw new AuthError(
+        'EMAIL_EXISTS',
+        'Email already registered',
+        400
+      );
+    }
+
+    // Check if username already exists
+    const existingUsername = await this.userRepository.findByUsername(username);
+    if (existingUsername) {
+      throw new AuthError(
+        'USERNAME_EXISTS',
+        'Username already taken',
+        400
+      );
+    }
+
+    // Hash password with bcrypt (cost 12 as specified)
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Create user
+    const user = await this.userRepository.createUser({
+      email,
+      username,
+      passwordHash,
+    });
+
+    // Generate tokens
+    const tokenId = generateTokenId();
+
+    const accessToken = signAccessToken({
+      userId: user.id,
+      publicKey: user.walletAddress || '', // Empty for email users
+      tier: user.tier,
+    });
+
+    const refreshToken = signRefreshToken({
+      userId: user.id,
+      tokenId,
+    });
+
+    // Store session in Redis
+    const sessionData: SessionData = {
+      userId: user.id,
+      tokenId,
+      publicKey: user.walletAddress || '',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + getRefreshTokenTTLSeconds() * 1000,
+    };
+
+    await this.sessionSvc.createSession(sessionData);
+
+    // Apply referral bonus if a referral code was provided
+    if (referralCode) {
+      try {
+        const { referralService } = await import('./referral.service.js');
+        await referralService.applyReferralAtRegistration(referralCode, user.id);
+      } catch {
+        // Non-fatal — don't block registration
+      }
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: getAccessTokenTTLSeconds(),
+      tokenType: 'Bearer',
+      user: {
+        id: user.id,
+        publicKey: user.walletAddress || '',
+        username: user.username,
+        tier: user.tier,
+      },
+    };
+  }
+
+  /**
+   * Login with email and password
+   * Validates credentials, returns JWT pair
+   */
+  async emailLogin(
+    credentials: { email: string; password: string },
+    metadata?: { userAgent?: string; ipAddress?: string }
+  ): Promise<LoginResponse> {
+    const { email, password } = credentials;
+
+    // Find user by email
+    const user = await this.userRepository.findByEmail(email);
+    if (!user) {
+      throw new AuthError(
+        'INVALID_CREDENTIALS',
+        'Invalid email or password',
+        401
+      );
+    }
+
+    if (!user.passwordHash) {
+      throw new AuthError(
+        'INVALID_CREDENTIALS',
+        'Invalid email or password',
+        401
+      );
+    }
+
+    if (!user.isActive) {
+      throw new AuthError('USER_INACTIVE', 'User account is inactive', 401);
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!isValidPassword) {
+      throw new AuthError(
+        'INVALID_CREDENTIALS',
+        'Invalid email or password',
+        401
+      );
+    }
+
+    // Generate tokens
+    const tokenId = generateTokenId();
+
+    const accessToken = signAccessToken({
+      userId: user.id,
+      publicKey: user.walletAddress || '',
+      tier: user.tier,
+    });
+
+    const refreshToken = signRefreshToken({
+      userId: user.id,
+      tokenId,
+    });
+
+    // Store session in Redis
+    const sessionData: SessionData = {
+      userId: user.id,
+      tokenId,
+      publicKey: user.walletAddress || '',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + getRefreshTokenTTLSeconds() * 1000,
+      userAgent: metadata?.userAgent,
+      ipAddress: metadata?.ipAddress,
+    };
+
+    await this.sessionSvc.createSession(sessionData);
+
+    // Update last login timestamp
+    await this.userRepository.updateLastLogin(user.id);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: getAccessTokenTTLSeconds(),
+      tokenType: 'Bearer',
+      user: {
+        id: user.id,
+        publicKey: user.walletAddress || '',
+        username: user.username,
+        tier: user.tier,
+      },
     };
   }
 

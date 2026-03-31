@@ -9,6 +9,50 @@ import { logger } from '../utils/logger.js';
 
 export class WalletController {
   /**
+   * POST /api/wallet/deposit
+   * Body: { amount: number, txHash?: string }
+   * Response 202: { transactionId, depositAddress, memo, status }
+   */
+  async deposit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.userId;
+    if (!userId) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication required');
+
+    const { amount, txHash } = req.body as { amount?: unknown; txHash?: unknown };
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      throw new ApiError(400, 'INVALID_AMOUNT', 'amount must be a positive number');
+    }
+
+    const result = await walletService.deposit({
+      userId,
+      amount: parsedAmount,
+      txHash: typeof txHash === 'string' ? txHash : undefined,
+    });
+
+    res.status(202).json({ success: true, data: result });
+  }
+
+  /**
+   * POST /api/wallet/withdraw
+   * Body: { amount: number }
+   * Response 202: { transactionId, status, amountRequested }
+   */
+  async withdrawAsync(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.userId;
+    if (!userId) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication required');
+
+    const { amount } = req.body as { amount?: unknown };
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      throw new ApiError(400, 'INVALID_AMOUNT', 'amount must be a positive number');
+    }
+
+    logger.info('Async withdrawal request', { userId, amount: parsedAmount });
+    const result = await walletService.withdrawAsync({ userId, amount: parsedAmount });
+    res.status(202).json({ success: true, data: result });
+  }
+
+  /**
    * POST /api/wallet/deposit/initiate
    *
    * Response: { success: true, data: { depositAddress, memo, expiresAt } }
@@ -95,6 +139,57 @@ export class WalletController {
       success: true,
       data: result,
     });
+  }
+
+  /**
+   * GET /api/wallet/balance
+   *
+   * Response: { success: true, data: { onChainBalance, offChainBalance, lockedBalance, currency } }
+   */
+  async getBalance(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication required');
+    }
+
+    logger.info('Get balance request', { userId });
+
+    const result = await walletService.getBalance(userId);
+    res.status(200).json({ success: true, data: result });
+  }
+
+  /**
+   * GET /api/wallet/transactions
+   *
+   * Query: { page?, limit?, type?, from?, to? }
+   * Response: { success: true, data: { transactions, total, page, limit } }
+   */
+  async getTransactions(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication required');
+    }
+
+    const { page = 1, limit = 20, type, from, to } = req.query as {
+      page?: number;
+      limit?: number;
+      type?: string;
+      from?: string;
+      to?: string;
+    };
+
+    logger.info('Get transactions request', { userId, page, limit, type });
+
+    const result = await walletService.getTransactions({
+      userId,
+      page,
+      limit,
+      type: type as any,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+    });
+
+    res.status(200).json({ success: true, data: result });
   }
 }
 

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
 import { StellarService } from '../../src/services/stellar.service.js';
+import { AuthService } from '../../src/services/auth.service.js';
+import { SessionService } from '../../src/services/session.service.js';
+import { UserRepository } from '../../src/repositories/user.repository.js';
 import {
   signAccessToken,
   verifyAccessToken,
@@ -165,5 +168,139 @@ describe('Crypto Utils', () => {
     expect(message).toContain(nonce);
     expect(message).toContain(String(timestamp));
     expect(message).toContain(String(ttl));
+  });
+});
+
+describe('AuthService - Refresh Token Rotation', () => {
+  let authService: AuthService;
+  let mockUserRepository: any;
+  let mockSessionService: any;
+  let mockStellarService: any;
+
+  beforeEach(() => {
+    // Mock dependencies
+    mockUserRepository = {
+      findById: vi.fn(),
+      updateLastLogin: vi.fn(),
+    };
+    
+    mockSessionService = {
+      getSession: vi.fn(),
+      rotateSession: vi.fn(),
+      isTokenBlacklisted: vi.fn(),
+    };
+    
+    mockStellarService = {
+      isValidPublicKey: vi.fn(),
+      verifySignature: vi.fn(),
+    };
+
+    // Create AuthService instance with mocked dependencies
+    authService = new AuthService();
+    (authService as any).userRepository = mockUserRepository;
+    (authService as any).sessionSvc = mockSessionService;
+    (authService as any).stellarSvc = mockStellarService;
+  });
+
+  it('should reject replay of used refresh token', async () => {
+    const userId = 'user-123';
+    const tokenId = 'token-456';
+    const refreshToken = signRefreshToken({ userId, tokenId });
+
+    // Mock successful first refresh
+    mockSessionService.getSession.mockResolvedValueOnce({
+      userId,
+      tokenId,
+      publicKey: 'GBXXXXXX',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+    mockSessionService.isTokenBlacklisted.mockResolvedValueOnce(false);
+    mockUserRepository.findById.mockResolvedValueOnce({
+      id: userId,
+      walletAddress: 'GBXXXXXX',
+      tier: 'BEGINNER',
+      isActive: true,
+    });
+    mockSessionService.rotateSession.mockResolvedValueOnce(undefined);
+
+    // First refresh should succeed
+    const firstResult = await authService.refresh(refreshToken);
+    expect(firstResult).toHaveProperty('accessToken');
+    expect(firstResult).toHaveProperty('refreshToken');
+
+    // Mock second attempt - session no longer exists (rotated away)
+    mockSessionService.getSession.mockResolvedValueOnce(null);
+
+    // Second refresh with same token should fail
+    await expect(authService.refresh(refreshToken)).rejects.toThrow(AuthError);
+    
+    // Verify it fails with SESSION_NOT_FOUND
+    try {
+      await authService.refresh(refreshToken);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthError);
+      expect((error as AuthError).code).toBe('SESSION_NOT_FOUND');
+    }
+  });
+
+  it('should reject blacklisted refresh token', async () => {
+    const userId = 'user-123';
+    const tokenId = 'token-456';
+    const refreshToken = signRefreshToken({ userId, tokenId });
+
+    // Mock session exists but token is blacklisted
+    mockSessionService.getSession.mockResolvedValue({
+      userId,
+      tokenId,
+      publicKey: 'GBXXXXXX',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+    mockSessionService.isTokenBlacklisted.mockResolvedValue(true);
+
+    // Refresh should fail due to blacklisted token
+    await expect(authService.refresh(refreshToken)).rejects.toThrow(AuthError);
+
+    try {
+      await authService.refresh(refreshToken);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthError);
+      expect((error as AuthError).code).toBe('TOKEN_REVOKED');
+    }
+  });
+
+  it('should issue new refresh token on each successful refresh', async () => {
+    const userId = 'user-123';
+    const tokenId = 'token-456';
+    const refreshToken = signRefreshToken({ userId, tokenId });
+
+    // Mock successful refresh
+    mockSessionService.getSession.mockResolvedValue({
+      userId,
+      tokenId,
+      publicKey: 'GBXXXXXX',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+    mockSessionService.isTokenBlacklisted.mockResolvedValue(false);
+    mockUserRepository.findById.mockResolvedValue({
+      id: userId,
+      walletAddress: 'GBXXXXXX',
+      tier: 'BEGINNER',
+      isActive: true,
+    });
+    mockSessionService.rotateSession.mockImplementation((oldTokenId, newSessionData) => {
+      expect(oldTokenId).toBe(tokenId);
+      expect(newSessionData.userId).toBe(userId);
+      expect(newSessionData.tokenId).not.toBe(tokenId); // New token ID should be different
+    });
+
+    const result = await authService.refresh(refreshToken);
+
+    expect(result).toHaveProperty('accessToken');
+    expect(result).toHaveProperty('refreshToken');
+    expect(result.refreshToken).not.toBe(refreshToken); // Should be a new token
+    expect(mockSessionService.rotateSession).toHaveBeenCalledTimes(1);
   });
 });

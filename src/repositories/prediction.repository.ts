@@ -7,6 +7,30 @@ export class PredictionRepository extends BaseRepository<Prediction> {
     return 'prediction';
   }
 
+  /**
+   * Create a lightweight prediction record (no blockchain commitment).
+   * Used for tracking and leaderboard scoring.
+   */
+  async placePrediction(data: {
+    userId: string;
+    marketId: string;
+    outcomeId: number;
+    confidence: number;
+  }): Promise<Prediction> {
+    return this.timedQuery('placePrediction', () =>
+      this.prisma.prediction.create({
+        data: {
+          userId: data.userId,
+          marketId: data.marketId,
+          predictedOutcome: data.outcomeId,
+          amountUsdc: data.confidence,
+          commitmentHash: `track_${data.userId}_${data.marketId}_${Date.now()}`,
+          status: PredictionStatus.COMMITTED,
+        },
+      })
+    );
+  }
+
   async createPrediction(data: {
     userId: string;
     marketId: string;

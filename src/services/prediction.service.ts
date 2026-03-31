@@ -42,6 +42,28 @@ export class PredictionService {
   }
 
   /**
+   * Place a prediction record for tracking and leaderboard scoring.
+   * Validates market is open and user hasn't already predicted on this market.
+   */
+  async placePrediction(
+    userId: string,
+    marketId: string,
+    outcomeId: number,
+    confidence: number
+  ) {
+    const market = await this.marketRepository.findById(marketId);
+    if (!market) throw new Error('Market not found');
+    if (market.status !== MarketStatus.OPEN || market.closingAt <= new Date()) {
+      throw new Error('Market is not open for predictions');
+    }
+
+    const existing = await this.predictionRepository.findByUserAndMarket(userId, marketId);
+    if (existing) throw new Error('DUPLICATE_PREDICTION');
+
+    return this.predictionRepository.placePrediction({ userId, marketId, outcomeId, confidence });
+  }
+
+  /**
    * Commit a prediction with server-generated salt
    * Server generates and stores encrypted salt for reveal phase
    */

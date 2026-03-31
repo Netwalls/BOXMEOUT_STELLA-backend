@@ -84,6 +84,40 @@ class PredictionsController {
     }
   }
   /**
+   * POST /api/predictions — place a prediction (tracking + leaderboard)
+   */
+  async placePrediction(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+        return;
+      }
+
+      const { marketId, outcomeId, confidence } = req.body;
+
+      const prediction = await this.predictionService.placePrediction(userId, marketId, outcomeId, confidence);
+
+      res.status(201).json({ success: true, data: prediction });
+    } catch (error: any) {
+      if (error.message === 'DUPLICATE_PREDICTION') {
+        res.status(409).json({ success: false, error: { code: 'CONFLICT', message: 'You have already predicted on this market' } });
+        return;
+      }
+      if (error.message === 'Market not found') {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
+        return;
+      }
+      if (error.message === 'Market is not open for predictions') {
+        res.status(422).json({ success: false, error: { code: 'MARKET_CLOSED', message: error.message } });
+        return;
+      }
+      logger.error('PredictionsController.placePrediction error', { error });
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
+    }
+  }
+
+  /**
    * GET /api/predictions — requires auth (issue #21)
    * Returns paginated predictions for the authenticated user.
    * Query: status (pending|won|lost), page, limit

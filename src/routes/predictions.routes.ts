@@ -4,10 +4,57 @@ import { Router, Request, Response } from 'express';
 import { predictionsController } from '../controllers/predictions.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validation.middleware.js';
-import { getUserPredictionsQuery } from '../schemas/validation.schemas.js';
+import { getUserPredictionsQuery, placePredictionBody } from '../schemas/validation.schemas.js';
 import { AuthenticatedRequest } from '../types/auth.types.js';
 
 const router: Router = Router();
+
+/**
+ * @swagger
+ * /api/predictions:
+ *   post:
+ *     summary: Place a prediction
+ *     description: Record a user's prediction on a market outcome for tracking and leaderboard scoring.
+ *     tags: [Predictions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [marketId, outcomeId, confidence]
+ *             properties:
+ *               marketId:
+ *                 type: string
+ *                 format: uuid
+ *               outcomeId:
+ *                 type: integer
+ *                 enum: [0, 1]
+ *                 description: 0 = outcomeB (NO), 1 = outcomeA (YES)
+ *               confidence:
+ *                 type: number
+ *                 minimum: 0
+ *                 maximum: 1000000
+ *     responses:
+ *       201:
+ *         description: Prediction created
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       409:
+ *         description: User has already predicted on this market
+ *       422:
+ *         description: Market is not open for predictions
+ */
+router.post(
+  '/',
+  requireAuth,
+  validate({ body: placePredictionBody }),
+  (req: Request, res: Response) => predictionsController.placePrediction(req as AuthenticatedRequest, res)
+);
 
 /**
  * @swagger

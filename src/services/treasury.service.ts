@@ -3,6 +3,8 @@ import {
   TreasuryBalances,
 } from './blockchain/treasury.js';
 import { TreasuryDistributionRepository } from '../repositories/treasury-distribution.repository.js';
+import { DistributionType, DistributionStatus } from '@prisma/client';
+import { prisma } from '../database/prisma.js';
 import { MarketRepository } from '../repositories/market.repository.js';
 import { DistributionType, DistributionStatus, MarketStatus } from '@prisma/client';
 
@@ -117,5 +119,31 @@ export class TreasuryService {
 
   async getDistributionHistory(limit: number = 20) {
     return await this.distributionRepository.findRecent(limit);
+  }
+
+  async getStats() {
+    const [balances, aggregate, perMarket] = await Promise.all([
+      blockchainTreasuryService.getBalances(),
+      this.distributionRepository.getAggregate(),
+      prisma.market.findMany({
+        select: { id: true, title: true, feesCollected: true },
+        orderBy: { feesCollected: 'desc' },
+      }),
+    ]);
+
+    return {
+      totalCollected: aggregate.totalCollected,
+      pendingFees: aggregate.pendingFees,
+      balance: balances,
+      perMarket: perMarket.map((m) => ({
+        marketId: m.id,
+        title: m.title,
+        feesCollected: Number(m.feesCollected),
+      })),
+    };
+  }
+
+  async getHistory(page: number = 1, limit: number = 20) {
+    return await this.distributionRepository.findPaginated(page, limit);
   }
 }

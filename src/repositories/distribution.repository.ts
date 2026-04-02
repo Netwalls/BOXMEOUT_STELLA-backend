@@ -1,3 +1,9 @@
+// Distribution repository - tracks per-user winnings payouts for resolved markets.
+// Auditable and idempotent: markPaid is a no-op if the record is already PAID.
+import { WinningsPayout, PayoutStatus, PrismaClient } from '@prisma/client';
+import { BaseRepository } from './base.repository.js';
+
+export class DistributionRepository extends BaseRepository<WinningsPayout> {
 import { BaseRepository, toRepositoryError } from './base.repository.js';
 import {
   Distribution,
@@ -55,6 +61,7 @@ export class DistributionRepository extends BaseRepository<Distribution> {
     });
   }
 
+  /** All payout records for a given market, oldest first. */
   async findByMarket(marketId: string): Promise<WinningsPayout[]> {
     return await this.prisma.winningsPayout.findMany({
       where: { marketId },

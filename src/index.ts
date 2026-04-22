@@ -1,6 +1,7 @@
 import express from "express";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { AppError } from "./utils/AppError";
+import { logger } from "./utils/logger";
 
 const app = express();
 
@@ -13,13 +14,13 @@ app.get("/health", (_req, res) => {
 });
 
 // Example route that throws AppError
-app.get("/test-error", (_req, res, next) => {
+app.get("/test-error", (_req, _res, next) => {
   const error = new AppError(404, "Resource not found", { resource: "user" });
   next(error);
 });
 
 // Example route with unhandled error
-app.get("/test-unhandled", (_req, res) => {
+app.get("/test-unhandled", (_req, _res) => {
   throw new Error("Unexpected error occurred");
 });
 
@@ -45,7 +46,7 @@ app.use(errorMiddleware);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info(`Server running on port ${PORT}`);
 });
 
 export default app;

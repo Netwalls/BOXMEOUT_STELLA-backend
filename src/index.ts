@@ -1,5 +1,6 @@
 import express from "express";
 import { errorMiddleware } from "./middleware/error.middleware";
+import { rateLimit } from "./middleware/rate-limit.middleware";
 import { AppError } from "./utils/AppError";
 import { logger } from "./utils/logger";
 
@@ -12,6 +13,18 @@ app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// Rate-limited route groups
+app.use("/auth", rateLimit({ windowMs: 60_000, max: 10, keyBy: "ip" }));
+app.use("/trading", rateLimit({ windowMs: 60_000, max: 60, keyBy: "userId" }));
+app.use(
+  "/wallet/withdraw",
+  rateLimit({ windowMs: 60_000, max: 5, keyBy: "userId" }),
+);
+
+app.post("/auth/login", (_req, res) => res.json({ ok: true }));
+app.post("/trading/bet", (_req, res) => res.json({ ok: true }));
+app.post("/wallet/withdraw", (_req, res) => res.json({ ok: true }));
 
 // Example route that throws AppError
 app.get("/test-error", (_req, _res, next) => {

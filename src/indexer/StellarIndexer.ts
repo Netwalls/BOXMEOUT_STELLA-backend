@@ -136,6 +136,7 @@ export async function handleWinningsClaimed(event: RawStellarEvent): Promise<voi
  */
 export async function getLastProcessedLedger(): Promise<number> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**

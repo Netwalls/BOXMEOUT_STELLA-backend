@@ -41,6 +41,7 @@ export async function submitFightResult(
   outcome: FightOutcome,
 ): Promise<OracleReport> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -55,6 +56,7 @@ export async function submitFightResult(
  */
 export async function verifyOracleReport(report: OracleReport): Promise<boolean> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -63,6 +65,7 @@ export async function verifyOracleReport(report: OracleReport): Promise<boolean>
  */
 export function getOraclePublicKey(): string {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -74,6 +77,7 @@ export async function fetchFallbackResult(
   match_id: string,
 ): Promise<FightOutcome | null> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**

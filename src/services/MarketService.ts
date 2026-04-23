@@ -53,6 +53,7 @@ export async function getMarkets(
   pagination?: Pagination,
 ): Promise<MarketListResult> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -61,6 +62,7 @@ export async function getMarkets(
  */
 export async function getMarketById(market_id: string): Promise<Market> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -72,6 +74,7 @@ export async function getMarketById(market_id: string): Promise<Market> {
  */
 export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -83,6 +86,7 @@ export async function getBetsByMarket(
   bettor_address?: string,
 ): Promise<Bet[]> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -92,6 +96,7 @@ export async function getBetsByMarket(
  */
 export async function getMarketStats(market_id: string): Promise<MarketStats> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -106,6 +111,7 @@ export async function getPortfolioByAddress(
   bettor_address: string,
 ): Promise<Portfolio> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -116,4 +122,5 @@ export async function getMarketsByBettor(
   bettor_address: string,
 ): Promise<Market[]> {
   // TODO: implement
+  throw new Error('Not implemented');
 }

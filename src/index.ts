@@ -1,354 +1,52 @@
-import express, { Request, Response, NextFunction } from 'express';
-import { config } from 'dotenv';
+import express from "express";
+import { errorMiddleware } from "./middleware/error.middleware";
+import { AppError } from "./utils/AppError";
+import { logger } from "./utils/logger";
 
-// Load environment variables
-config();
+const app = express();
 
-// Import routes
-import authRoutes from './routes/auth.routes.js';
-import marketRoutes from './routes/markets.routes.js';
-import oracleRoutes from './routes/oracle.js';
-import predictionRoutes from './routes/predictions.js';
-import tradingRoutes from './routes/trading.js';
-import treasuryRoutes from './routes/treasury.routes.js';
-import referralsRoutes from './routes/referrals.routes.js';
-import leaderboardRoutes from './routes/leaderboard.routes.js';
-import notificationsRoutes from './routes/notifications.routes.js';
-import walletRoutes from './routes/wallet.routes.js';
-import disputeRoutes from './routes/disputes.routes.js';
+// Middleware
+app.use(express.json());
 
-// Import Redis initialization
-import {
-  initializeRedis,
-  closeRedisConnection,
-  getRedisStatus,
-} from './config/redis.js';
-
-// Import ALL middleware
-import {
-  securityHeaders,
-  corsMiddleware,
-  xssProtection,
-  frameGuard,
-  noCache,
-} from './middleware/security.middleware.js';
-
-import { requestIdMiddleware } from './middleware/requestId.middleware.js';
-import { requestLogger } from './middleware/logging.middleware.js';
-import { metricsMiddleware } from './middleware/metrics.middleware.js';
-import { logger } from './utils/logger.js';
-import {
-  errorHandler,
-  notFoundHandler,
-} from './middleware/error.middleware.js';
-import {
-  authRateLimiter,
-  challengeRateLimiter,
-  apiRateLimiter,
-  refreshRateLimiter,
-  sensitiveOperationRateLimiter,
-} from './middleware/rateLimit.middleware.js';
-
-// Import Swagger setup
-import { setupSwagger } from './config/swagger.js';
-
-// Import Cron initialization
-import { cronService } from './services/cron.service.js';
-
-// Import WebSocket initialization
-import { initializeSocketIO, setSocketIORef } from './websocket/realtime.js';
-import { notificationService } from './services/notification.service.js';
-import { createServer } from 'http';
-
-// Initialize Express app
-const app: express.Express = express();
-const PORT = process.env.PORT || 3000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
-
-// =============================================================================
-// MIDDLEWARE STACK - UPDATED WITH NEW MIDDLEWARE
-// =============================================================================
-
-// Security headers (using new helmet configuration)
-app.use(securityHeaders);
-
-// CORS configuration (using new middleware)
-app.use(corsMiddleware);
-
-// Additional security headers
-app.use(xssProtection);
-app.use(frameGuard);
-app.use(noCache);
-
-// Request parsing with limits
-app.use(express.json({ limit: '10mb' })); // Increased for blockchain operations
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Request ID and structured request logging (requestId + userId in logs)
-app.use(requestIdMiddleware);
-app.use(requestLogger);
-
-// Metrics tracking middleware
-app.use(metricsMiddleware);
-
-// Trust proxy (for rate limiting behind reverse proxy)
-app.set('trust proxy', 1);
-
-// Health Routes
-import healthRoutes from './routes/health.js';
-app.use('/api', healthRoutes);
-
-// Metrics Routes (before rate limiting)
-import metricsRoutes from './routes/metrics.routes.js';
-app.use('/metrics', metricsRoutes);
-
-/**
- * @swagger
- * /health:
- *   get:
- *     summary: Basic health check
- *     tags: [Health]
- *     responses:
- *       200:
- *         description: Service is healthy
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: healthy
- *                 timestamp:
- *                   type: string
- *                   format: date-time
- *                 environment:
- *                   type: string
- *                   example: development
- *                 version:
- *                   type: string
- *                   example: 1.0.0
- */
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    environment: NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0',
-  });
+// Routes
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
 });
 
-/**
- * @swagger
- * /health/detailed:
- *   get:
- *     summary: Detailed health check with service status
- *     tags: [Health]
- *     responses:
- *       200:
- *         description: Detailed health status
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: healthy
- *                 timestamp:
- *                   type: string
- *                   format: date-time
- *                 environment:
- *                   type: string
- *                   example: development
- *                 services:
- *                   type: object
- *                   properties:
- *                     redis:
- *                       type: object
- *                       properties:
- *                         connected:
- *                           type: boolean
- *                         status:
- *                           type: string
- */
-app.get('/health/detailed', async (req, res) => {
-  const redisStatus = getRedisStatus();
-
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    environment: NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0',
-    services: {
-      redis: redisStatus,
-      // Add database status check here when prisma is connected
-    },
-  });
+// Example route that throws AppError
+app.get("/test-error", (_req, _res, next) => {
+  const error = new AppError(404, "Resource not found", { resource: "user" });
+  next(error);
 });
 
-// =============================================================================
-// API DOCUMENTATION (SWAGGER)
-// =============================================================================
+// Example route with unhandled error
+app.get("/test-unhandled", (_req, _res) => {
+  throw new Error("Unexpected error occurred");
+});
 
-// Setup Swagger documentation
-setupSwagger(app);
-
-// =============================================================================
-// API ROUTES
-// =============================================================================
-
-// Apply general rate limiter to all API routes
-app.use('/api', apiRateLimiter);
-
-// Authentication routes with specific rate limiting
-app.use('/api/auth', authRateLimiter, authRoutes);
-
-// Market routes
-app.use('/api/markets', marketRoutes);
-app.use('/api/markets', oracleRoutes);
-
-// Prediction routes (commit-reveal flow)
-app.use('/api/markets', predictionRoutes);
-
-// Trading routes (buy/sell shares, odds)
-app.use('/api/markets', tradingRoutes);
-// Treasury routes
-app.use('/api/treasury', treasuryRoutes);
-
-// Trading routes (user-signed)
-app.use('/api', tradingRoutes);
-
-// TODO: Add other routes as they are implemented
-// app.use('/api/users', userRoutes);
-// app.use('/api/leaderboard', leaderboardRoutes);
-// Referral routes
-app.use('/api/referrals', referralsRoutes);
-
-// Leaderboard routes
-app.use('/api/leaderboard', leaderboardRoutes);
-
-// Notification routes
-app.use('/api/notifications', notificationsRoutes);
-
-// Wallet routes (USDC withdraw)
-app.use('/api/wallet', walletRoutes);
-
-// Dispute routes
-app.use('/api/disputes', disputeRoutes);
-
-// =============================================================================
-// ERROR HANDLING - UPDATED WITH NEW ERROR HANDLER
-// =============================================================================
-
-// Use the new 404 handler
-app.use(notFoundHandler);
-
-// Use the new global error handler
-app.use(errorHandler);
-
-// =============================================================================
-// SERVER STARTUP
-// =============================================================================
-
-// Create HTTP server
-const httpServer = createServer(app);
-
-async function startServer(): Promise<void> {
-  try {
-    // Initialize Redis connection
-    logger.info('Connecting to Redis');
-    await initializeRedis();
-
-    // TODO: Initialize Prisma/Database connection
-    // await prisma.$connect();
-    // logger.info('Database connected');
-
-    // Initialize WebSocket
-    const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
-    const io = initializeSocketIO(httpServer, corsOrigin);
-    logger.info('WebSocket initialized');
-
-    // Connect notification service to WebSocket
-    notificationService.setSocketIO(io);
-
-    // Store global io reference for portfolio emitters
-    setSocketIORef(io);
-
-    // Initialize Cron Service
-    await cronService.initialize();
-
-    // Start Blockchain Indexer Service (if enabled)
-    if (process.env.ENABLE_INDEXER !== 'false') {
-      logger.info('Starting blockchain indexer service');
-      await indexerService.start();
-    }
-
-    // Start HTTP server
-    httpServer.listen(PORT, () => {
-      logger.info('BoxMeOut Stella Backend API started', {
-        environment: NODE_ENV,
-        port: PORT,
-        api: `http://localhost:${PORT}`,
-        docs: `http://localhost:${PORT}/api-docs`,
-        health: `http://localhost:${PORT}/health`,
-        websocket: `ws://localhost:${PORT}`,
-      });
+// Example route with validation error
+app.post("/api/users", (req, res, next) => {
+  if (!req.body.email) {
+    const error = new AppError(400, "Validation error", {
+      field: "email",
+      reason: "Email is required",
     });
-  } catch (error) {
-    logger.error('Failed to start server', { error });
-    process.exit(1);
+    return next(error);
   }
-}
-
-// =============================================================================
-// GRACEFUL SHUTDOWN
-// =============================================================================
-
-async function gracefulShutdown(signal: string): Promise<void> {
-  logger.info(`${signal} received. Shutting down gracefully`);
-
-  try {
-    // Stop Blockchain Indexer
-    if (process.env.ENABLE_INDEXER !== 'false') {
-      logger.info('Stopping blockchain indexer');
-      await indexerService.stop();
-    }
-
-    // Close Redis connection
-    await closeRedisConnection();
-
-    // TODO: Close database connection
-    // await prisma.$disconnect();
-
-    logger.info('Cleanup completed. Exiting.');
-    process.exit(0);
-  } catch (error) {
-    logger.error('Error during shutdown', { error });
-    process.exit(1);
-  }
-}
-
-// Handle shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', { error });
-  gracefulShutdown('uncaughtException');
+  res.json({ success: true });
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { promise, reason });
+// 404 handler - must be before error middleware
+app.use((_req, _res, next) => {
+  next(new AppError(404, "Route not found"));
 });
 
-// Start the server if runs directly
-import { fileURLToPath } from 'url';
+// Error handler - must be LAST
+app.use(errorMiddleware);
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  startServer();
-}
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
+});
 
-export { startServer };
 export default app;

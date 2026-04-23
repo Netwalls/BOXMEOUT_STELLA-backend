@@ -29,6 +29,7 @@ export async function invokeContract(
   source_keypair: Keypair,
 ): Promise<string> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -49,6 +50,7 @@ export async function readContractState<T>(
   args: xdr.ScVal[],
 ): Promise<T> {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -65,6 +67,7 @@ export function subscribeToContractEvents(
   onEvent: (event: unknown) => void,
 ): () => void {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -86,6 +89,7 @@ export function subscribeToContractEvents(
  */
 export function parseScVal(scval: xdr.ScVal): unknown {
   // TODO: implement
+  throw new Error('Not implemented');
 }
 
 /**
@@ -95,4 +99,5 @@ export function parseScVal(scval: xdr.ScVal): unknown {
  */
 export async function getCurrentBaseFee(): Promise<number> {
   // TODO: implement
+  throw new Error('Not implemented');
 }

@@ -365,8 +365,22 @@ describe('POST /api/markets - Create Market', () => {
 });
 
 describe('GET /api/markets - List Markets', () => {
-  it('should list markets successfully', async () => {
+  it('should list markets successfully with default pagination', async () => {
     const response = await request(app).get('/api/markets').expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toBeInstanceOf(Array);
+    expect(response.body.pagination).toBeDefined();
+    expect(response.body.pagination.page).toBe(1);
+    expect(response.body.pagination.limit).toBe(20);
+    expect(response.body.pagination.total).toBeDefined();
+    expect(response.body.pagination.pages).toBeDefined();
+  });
+
+  it('should filter markets by status', async () => {
+    const response = await request(app)
+      .get('/api/markets?status=OPEN')
+      .expect(200);
 
     expect(response.body.success).toBe(true);
     expect(response.body.data).toBeInstanceOf(Array);
@@ -382,14 +396,41 @@ describe('GET /api/markets - List Markets', () => {
     expect(response.body.data).toBeInstanceOf(Array);
   });
 
-  it('should paginate results correctly', async () => {
+  it('should sort markets by different fields', async () => {
     const response = await request(app)
-      .get('/api/markets?skip=0&take=10')
+      .get('/api/markets?sort=totalVolume&order=desc')
       .expect(200);
 
     expect(response.body.success).toBe(true);
-    expect(response.body.pagination.skip).toBe(0);
-    expect(response.body.pagination.take).toBe(10);
+    expect(response.body.data).toBeInstanceOf(Array);
+  });
+
+  it('should paginate results correctly with page and limit', async () => {
+    const response = await request(app)
+      .get('/api/markets?page=2&limit=10')
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.pagination.page).toBe(2);
+    expect(response.body.pagination.limit).toBe(10);
+  });
+
+  it('should enforce maximum limit of 100', async () => {
+    const response = await request(app)
+      .get('/api/markets?limit=500')
+      .expect(200);
+
+    expect(response.body.pagination.limit).toBeLessThanOrEqual(100);
+  });
+
+  it('should combine multiple filters', async () => {
+    const response = await request(app)
+      .get('/api/markets?status=OPEN&category=WRESTLING&sort=closingAt&order=asc&page=1&limit=20')
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toBeInstanceOf(Array);
+    expect(response.body.pagination.page).toBe(1);
   });
 });
 

@@ -5,9 +5,37 @@
 // Contributors: implement every function marked TODO.
 // ============================================================
 
+import { verify as cryptoVerify, createPublicKey } from 'crypto';
+import { Keypair } from '@stellar/stellar-sdk';
 import type { OracleReport } from '../models/OracleReport';
 
 export type FightOutcome = 'fighter_a' | 'fighter_b' | 'draw' | 'no_contest';
+
+const OUTCOME_INDEX: Record<FightOutcome, number> = {
+  fighter_a: 0,
+  fighter_b: 1,
+  draw: 2,
+  no_contest: 3,
+};
+
+// ─── Whitelist cache ──────────────────────────────────────────────────────────
+
+let whitelistCache: Set<string> | null = null;
+let whitelistFetchedAt = 0;
+const WHITELIST_TTL_MS = 5 * 60 * 1000;
+
+async function getOracleWhitelist(): Promise<Set<string>> {
+  if (whitelistCache && Date.now() - whitelistFetchedAt < WHITELIST_TTL_MS) {
+    return whitelistCache;
+  }
+  // TODO: replace with real DB/contract query for oracle whitelist
+  const addresses: string[] = process.env.ORACLE_WHITELIST
+    ? process.env.ORACLE_WHITELIST.split(',').map((s) => s.trim())
+    : [];
+  whitelistCache = new Set(addresses);
+  whitelistFetchedAt = Date.now();
+  return whitelistCache;
+}
 
 /**
  * Polls external boxing data sources for confirmed fight results.
@@ -55,8 +83,43 @@ export async function submitFightResult(
  * Returns true if valid, false otherwise. Never throws.
  */
 export async function verifyOracleReport(report: OracleReport): Promise<boolean> {
-  // TODO: implement
-  throw new Error('Not implemented');
+  try {
+    // 1. Reconstruct signed message
+    const outcomeIndex = OUTCOME_INDEX[report.outcome as FightOutcome];
+    if (outcomeIndex === undefined) return false;
+
+    const reportedAtMs = BigInt(new Date(report.reported_at).getTime());
+    const tsBuf = Buffer.alloc(8);
+    tsBuf.writeBigInt64BE(reportedAtMs);
+
+    const message = Buffer.concat([
+      Buffer.from(report.match_id),
+      Buffer.from([outcomeIndex]),
+      tsBuf,
+    ]);
+
+    // 2. Verify Ed25519 signature
+    const rawPubKey = Keypair.fromPublicKey(report.oracle_address).rawPublicKey();
+    const pubKeyObj = createPublicKey({
+      key: Buffer.concat([
+        // Ed25519 SubjectPublicKeyInfo DER prefix (12 bytes)
+        Buffer.from('302a300506032b6570032100', 'hex'),
+        rawPubKey,
+      ]),
+      format: 'der',
+      type: 'spki',
+    });
+
+    const sigBuf = Buffer.from(report.signature, 'hex');
+    const sigValid = cryptoVerify(null, message, pubKeyObj, sigBuf);
+    if (!sigValid) return false;
+
+    // 3. Check whitelist
+    const whitelist = await getOracleWhitelist();
+    return whitelist.has(report.oracle_address);
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -1,6 +1,7 @@
 import express from "express";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { rateLimit } from "./middleware/rate-limit.middleware";
+import { requireEmailVerification } from "./middleware/email-verification.middleware";
 import { AppError } from "./utils/AppError";
 import { logger } from "./utils/logger";
 import authRouter from "./routes/auth.routes";
@@ -24,8 +25,10 @@ app.use(
 );
 
 app.use("/auth", authRouter);
-app.post("/trading/bet", (_req, res) => res.json({ ok: true }));
-app.post("/wallet/withdraw", (_req, res) => res.json({ ok: true }));
+
+// Protected routes — require email verification
+app.post("/trading/bet", requireEmailVerification, (_req, res) => res.json({ ok: true }));
+app.post("/wallet/withdraw", requireEmailVerification, (_req, res) => res.json({ ok: true }));
 
 // Example route that throws AppError
 app.get("/test-error", (_req, _res, next) => {

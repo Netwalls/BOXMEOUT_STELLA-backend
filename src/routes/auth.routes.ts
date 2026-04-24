@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import * as authService from '../services/auth.service';
 import { AppError } from '../utils/AppError';
+import { rateLimit } from '../middleware/rate-limit.middleware';
 
 const router = Router();
 
@@ -15,6 +16,19 @@ function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   next();
 }
 
+router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      throw new AppError(400, 'Email and password required');
+    }
+    const result = await authService.register(email, password);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, password } = req.body;
@@ -27,6 +41,36 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     next(err);
   }
 });
+
+router.get('/verify-email', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = req.query;
+    if (!token || typeof token !== 'string') {
+      throw new AppError(400, 'Verification token required');
+    }
+    await authService.verifyEmailToken(token);
+    res.json({ success: true, message: 'Email verified successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  '/resend-verification',
+  rateLimit({ windowMs: 60_000, max: 1, keyBy: 'ip' }),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        throw new AppError(400, 'Email required');
+      }
+      await authService.resendVerificationEmail(email);
+      res.json({ success: true, message: 'Verification email sent' });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post('/2fa/setup', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {

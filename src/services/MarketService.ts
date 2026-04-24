@@ -7,6 +7,7 @@
 import type { Market, MarketStats } from '../models/Market';
 import type { Bet } from '../models/Bet';
 import { cacheGet, cacheSet } from './cache.service';
+import * as StellarService from './StellarService';
 import { AppError } from '../utils/AppError';
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,7 @@ export interface DbAdapter {
   findMarkets(filters?: MarketFilters): Promise<Market[]>;
   findMarketById(market_id: string): Promise<Market | null>;
   findBetsByAddress(bettor_address: string): Promise<Bet[]>;
+  updateMarketStatus(market_id: string, status: string): Promise<void>;
 }
 
 let _db: DbAdapter | null = null;
@@ -28,6 +30,8 @@ function db(): DbAdapter {
   if (!_db) throw new Error('DbAdapter not initialised');
   return _db;
 }
+
+export { db };
 
 export interface MarketFilters {
   status?: string;
@@ -118,13 +122,32 @@ export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
   const market = await db().findMarketById(market_id);
   if (!market) throw new AppError(404, `Market not found: ${market_id}`);
 
-  const total = Number(market.total_pool);
-  if (total === 0) return { odds_a: 0, odds_b: 0, odds_draw: 0 };
+  const now = new Date();
+  const isStale = (now.getTime() - market.updated_at.getTime()) > 30_000; // 30 seconds
+
+  let pool_a: bigint, pool_b: bigint, pool_draw: bigint, total_pool: bigint;
+
+  if (isStale) {
+    // Fallback to on-chain read
+    // Assume readContractState returns { pool_a: string, pool_b: string, pool_draw: string, total_pool: string }
+    const onChainData = await StellarService.readContractState(market.contract_address, 'get_pools', []);
+    pool_a = BigInt(onChainData.pool_a);
+    pool_b = BigInt(onChainData.pool_b);
+    pool_draw = BigInt(onChainData.pool_draw);
+    total_pool = BigInt(onChainData.total_pool);
+  } else {
+    pool_a = BigInt(market.pool_a);
+    pool_b = BigInt(market.pool_b);
+    pool_draw = BigInt(market.pool_draw);
+    total_pool = BigInt(market.total_pool);
+  }
+
+  if (total_pool === 0n) return { odds_a: 0, odds_b: 0, odds_draw: 0 };
 
   return {
-    odds_a: Math.floor(Number(market.pool_a) * 10_000 / total),
-    odds_b: Math.floor(Number(market.pool_b) * 10_000 / total),
-    odds_draw: Math.floor(Number(market.pool_draw) * 10_000 / total),
+    odds_a: Number(pool_a * 10000n / total_pool),
+    odds_b: Number(pool_b * 10000n / total_pool),
+    odds_draw: Number(pool_draw * 10000n / total_pool),
   };
 }
 
@@ -186,7 +209,9 @@ export async function getPortfolioByAddress(
       active_bets.push(bet);
     } else {
       past_bets.push(bet);
-      if (status === 'resolved' && !bet.claimed) pending_claims.push(bet);
+      if (status === 'resolved' && !bet.claimed && market?.outcome === bet.side) {
+        pending_claims.push(bet);
+      }
     }
   }
 

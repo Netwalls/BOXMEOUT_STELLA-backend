@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import * as authService from '../services/auth.service';
 import { AppError } from '../utils/AppError';
+import { validateBody } from '../api/middleware/validate';
 
 const router = Router();
 
@@ -15,13 +17,23 @@ function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   next();
 }
 
-router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+const otpSchema = z.object({
+  otp: z.string().min(1),
+});
+
+const verifySchema = z.object({
+  tempToken: z.string().min(1),
+  otp: z.string().min(1),
+});
+
+router.post('/login', validateBody(loginSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      throw new AppError(400, 'Email and password required');
-    }
-    const result = await authService.login(email, password);
+    const result = await authService.login(req.body.email, req.body.password);
     res.json(result);
   } catch (err) {
     next(err);
@@ -30,43 +42,34 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
 
 router.post('/2fa/setup', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).userId;
-    const result = await authService.setup2FA(userId);
+    const result = await authService.setup2FA((req as any).userId);
     res.json(result);
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/2fa/enable', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/2fa/enable', requireAuth, validateBody(otpSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).userId;
-    const { otp } = req.body;
-    if (!otp) throw new AppError(400, 'OTP required');
-    await authService.enable2FA(userId, otp);
+    await authService.enable2FA((req as any).userId, req.body.otp);
     res.json({ success: true });
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/2fa/disable', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/2fa/disable', requireAuth, validateBody(otpSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).userId;
-    const { otp } = req.body;
-    if (!otp) throw new AppError(400, 'OTP required');
-    await authService.disable2FA(userId, otp);
+    await authService.disable2FA((req as any).userId, req.body.otp);
     res.json({ success: true });
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/2fa/verify', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/2fa/verify', validateBody(verifySchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { tempToken, otp } = req.body;
-    if (!tempToken || !otp) throw new AppError(400, 'tempToken and otp required');
-    const result = await authService.verify2FA(tempToken, otp);
+    const result = await authService.verify2FA(req.body.tempToken, req.body.otp);
     res.json(result);
   } catch (err) {
     next(err);

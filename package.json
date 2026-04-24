@@ -14,7 +14,8 @@
     "jsonwebtoken": "^9.0.3",
     "otpauth": "^9.5.0",
     "qrcode": "^1.5.4",
-    "winston": "^3.13.0"
+    "winston": "^3.13.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^15.0.1",

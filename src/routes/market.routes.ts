@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { getMarketBets, getMarketBetsValidation } from '../api/controllers/MarketController';
+import { getMarketBets } from '../api/controllers/MarketController';
 
 const router = Router();
 
-router.get('/:market_id/bets', getMarketBetsValidation, getMarketBets);
+router.get('/:market_id/bets', getMarketBets);
 
 export default router;

@@ -53,10 +53,16 @@ export const getMarketBetsValidation = validateQuery(marketBetsQuerySchema);
 
 export async function getMarketBets(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const bets = await MarketService.getBetsByMarket(
-      req.params.market_id,
-      req.query.address as string | undefined,
-    );
+    const { market_id } = req.params;
+    const { address } = req.query;
+
+    if (address !== undefined) {
+      if (typeof address !== 'string' || !StrKey.isValidEd25519PublicKey(address)) {
+        throw new AppError(400, 'Invalid Stellar address format');
+      }
+    }
+
+    const bets = await MarketService.getBetsByMarket(market_id, address as string | undefined);
     res.json(bets);
   } catch (err) {
     next(err);

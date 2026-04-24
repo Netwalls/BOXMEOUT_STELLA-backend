@@ -85,9 +85,10 @@ export async function getBetsByMarket(
   market_id: string,
   bettor_address?: string,
 ): Promise<Bet[]> {
-  // TODO: replace with real DB query
-  // SELECT * FROM bets WHERE market_id = $1 [AND bettor_address = $2]
-  void market_id; void bettor_address;
+  // TODO: replace with real DB query once pg client is wired up
+  // e.g. SELECT * FROM bets WHERE market_id = $1 [AND bettor_address = $2]
+  void bettor_address;
+  void market_id;
   return [];
 }
 

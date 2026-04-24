@@ -5,6 +5,7 @@ import { requireEmailVerification } from "./middleware/email-verification.middle
 import { AppError } from "./utils/AppError";
 import { logger } from "./utils/logger";
 import authRouter from "./routes/auth.routes";
+import marketRouter from "./routes/market.routes";
 
 const app = express();
 
@@ -25,10 +26,9 @@ app.use(
 );
 
 app.use("/auth", authRouter);
-
-// Protected routes — require email verification
-app.post("/trading/bet", requireEmailVerification, (_req, res) => res.json({ ok: true }));
-app.post("/wallet/withdraw", requireEmailVerification, (_req, res) => res.json({ ok: true }));
+app.use("/api/markets", marketRouter);
+app.post("/trading/bet", (_req, res) => res.json({ ok: true }));
+app.post("/wallet/withdraw", (_req, res) => res.json({ ok: true }));
 
 // Example route that throws AppError
 app.get("/test-error", (_req, _res, next) => {

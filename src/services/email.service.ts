@@ -1,86 +1,94 @@
-// ============================================================
-// BOXMEOUT — Email Service
-// Handles email sending for verification, password reset, etc.
-// ============================================================
-
+import nodemailer from 'nodemailer';
 import { logger } from '../utils/logger';
 
-export interface EmailOptions {
-  to: string;
-  subject: string;
-  html: string;
-}
+// ---------------------------------------------------------------------------
+// Transporter — configure via env vars.
+// For production use SMTP_HOST/PORT/USER/PASS.
+// Falls back to Ethereal (catch-all test account) when env vars are absent.
+// ---------------------------------------------------------------------------
+function createTransporter() {
+  const host = process.env.SMTP_HOST;
+  const port = parseInt(process.env.SMTP_PORT ?? '587', 10);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
 
-/**
- * Sends an email via configured provider (stub for now).
- * In production, integrate with SendGrid, AWS SES, or similar.
- *
- * Returns true on success, false on failure.
- * Never throws — logs errors instead.
- */
-export async function sendEmail(opts: EmailOptions): Promise<boolean> {
-  try {
-    // TODO: Integrate with actual email provider (SendGrid, AWS SES, etc.)
-    // For now, just log the email
-    logger.info({
-      message: 'Email sent',
-      to: opts.to,
-      subject: opts.subject,
+  if (host && user && pass) {
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
     });
-    return true;
-  } catch (err) {
-    logger.error({
-      message: 'Failed to send email',
-      to: opts.to,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
   }
+
+  // Development fallback — logs preview URL to console
+  logger.warn('SMTP env vars not set; using nodemailer stub transport (emails will not be delivered)');
+  return nodemailer.createTransport({ jsonTransport: true });
 }
 
-/**
- * Sends a verification email with a token link.
- */
-export async function sendVerificationEmail(
-  email: string,
-  token: string,
-  verifyUrl: string,
-): Promise<boolean> {
-  const link = `${verifyUrl}?token=${token}`;
-  const html = `
-    <h2>Verify Your Email</h2>
-    <p>Click the link below to verify your email address:</p>
-    <a href="${link}">Verify Email</a>
-    <p>This link expires in 24 hours.</p>
-    <p>If you didn't create this account, ignore this email.</p>
-  `;
+const transporter = createTransporter();
 
-  return sendEmail({
-    to: email,
-    subject: 'Verify Your BOXMEOUT Email',
-    html,
-  });
-}
+const APP_NAME = process.env.APP_NAME ?? 'BoxMeOut';
+const APP_BASE_URL = process.env.APP_BASE_URL ?? 'http://localhost:3001';
+const FROM_ADDRESS = process.env.SMTP_FROM ?? `no-reply@boxmeout.app`;
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 /**
- * Sends a resend verification email.
+ * Send a password-reset email containing a signed JWT link.
+ * Failures are caught and logged — never thrown — so the caller cannot
+ * distinguish "email sent" from "email failed" (prevents enumeration).
  */
-export async function sendResendVerificationEmail(
-  email: string,
-  token: string,
-  verifyUrl: string,
-): Promise<boolean> {
-  const link = `${verifyUrl}?token=${token}`;
+export async function sendPasswordResetEmail(
+  toEmail: string,
+  resetToken: string,
+): Promise<void> {
+  const resetUrl = `${APP_BASE_URL}/auth/reset-password?token=${resetToken}`;
+
   const html = `
-    <h2>Verify Your Email</h2>
-    <p>Here's your new verification link:</p>
-    <a href="${link}">Verify Email</a>
-    <p>This link expires in 24 hours.</p>
+    <p>Hi,</p>
+    <p>We received a request to reset your <strong>${APP_NAME}</strong> password.</p>
+    <p>
+      <a href="${resetUrl}" style="
+        display:inline-block;
+        padding:10px 20px;
+        background:#4f46e5;
+        color:#fff;
+        border-radius:4px;
+        text-decoration:none;
+      ">Reset my password</a>
+    </p>
+    <p><strong>⚠ This link expires in 15 minutes.</strong></p>
+    <p>If you did not request a password reset, you can safely ignore this email.</p>
+    <p>— The ${APP_NAME} team</p>
   `;
 
-  return sendEmail({
-    to: email,
-    subject: 'BOXMEOUT Email Verification - New Link',
-    html,
-  });
+  const text = [
+    `Reset your ${APP_NAME} password`,
+    '',
+    `Visit the link below to reset your password (expires in 15 minutes):`,
+    resetUrl,
+    '',
+    'If you did not request a password reset, ignore this email.',
+  ].join('\n');
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"${APP_NAME}" <${FROM_ADDRESS}>`,
+      to: toEmail,
+      subject: `Reset your ${APP_NAME} password`,
+      text,
+      html,
+    });
+
+    // In dev the jsonTransport serialises the message — log it for inspection
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info({ msg: 'Password reset email (dev)', messageId: info.messageId });
+    }
+  } catch (err) {
+    // Log but swallow — callers must not learn whether delivery succeeded
+    logger.error({ msg: 'Failed to send password reset email', error: err });
+  }
 }

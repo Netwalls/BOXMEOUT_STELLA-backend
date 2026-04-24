@@ -6,6 +6,7 @@
 
 import type { Market, MarketStats } from '../models/Market';
 import type { Bet } from '../models/Bet';
+import { cacheGet, cacheSet } from './cache.service';
 
 export interface MarketFilters {
   status?: string;
@@ -52,7 +53,13 @@ export async function getMarkets(
   filters?: MarketFilters,
   pagination?: Pagination,
 ): Promise<MarketListResult> {
-  // TODO: implement
+  const cacheKey = `markets:${JSON.stringify(filters ?? {})}:${JSON.stringify(pagination ?? {})}`;
+  const cached = await cacheGet<MarketListResult>(cacheKey);
+  if (cached) return cached;
+
+  // TODO: query DB, build result, then:
+  // await cacheSet(cacheKey, result, 30);
+  // return result;
   throw new Error('Not implemented');
 }
 
@@ -95,7 +102,13 @@ export async function getBetsByMarket(
  * Results cached in Redis for 60 seconds.
  */
 export async function getMarketStats(market_id: string): Promise<MarketStats> {
-  // TODO: implement
+  const cacheKey = `market:${market_id}:stats`;
+  const cached = await cacheGet<MarketStats>(cacheKey);
+  if (cached) return cached;
+
+  // TODO: compute stats from bets table, then:
+  // await cacheSet(cacheKey, stats, 60);
+  // return stats;
   throw new Error('Not implemented');
 }
 

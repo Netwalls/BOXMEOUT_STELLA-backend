@@ -1,4 +1,5 @@
 import express from "express";
+import pinoHttp from "pino-http";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { rateLimit } from "./middleware/rate-limit.middleware";
 import { AppError } from "./utils/AppError";
@@ -8,6 +9,7 @@ import authRouter from "./routes/auth.routes";
 const app = express();
 
 // Middleware
+app.use(pinoHttp({ logger }));
 app.use(express.json());
 
 // Routes

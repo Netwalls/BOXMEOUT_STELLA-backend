@@ -7,6 +7,27 @@
 import type { Market, MarketStats } from '../models/Market';
 import type { Bet } from '../models/Bet';
 import { cacheGet, cacheSet } from './cache.service';
+import { AppError } from '../utils/AppError';
+
+// ---------------------------------------------------------------------------
+// DB adapter — thin abstraction so tests can inject a mock
+// ---------------------------------------------------------------------------
+export interface DbAdapter {
+  findMarkets(filters?: MarketFilters): Promise<Market[]>;
+  findMarketById(market_id: string): Promise<Market | null>;
+  findBetsByAddress(bettor_address: string): Promise<Bet[]>;
+}
+
+let _db: DbAdapter | null = null;
+
+export function setDbAdapter(adapter: DbAdapter): void {
+  _db = adapter;
+}
+
+function db(): DbAdapter {
+  if (!_db) throw new Error('DbAdapter not initialised');
+  return _db;
+}
 
 export interface MarketFilters {
   status?: string;
@@ -57,10 +78,23 @@ export async function getMarkets(
   const cached = await cacheGet<MarketListResult>(cacheKey);
   if (cached) return cached;
 
-  // TODO: query DB, build result, then:
-  // await cacheSet(cacheKey, result, 30);
-  // return result;
-  throw new Error('Not implemented');
+  let markets = await db().findMarkets(filters);
+
+  if (filters?.status) markets = markets.filter(m => m.status === filters.status);
+  if (filters?.weight_class) markets = markets.filter(m => m.weight_class === filters.weight_class);
+
+  markets = [...markets].sort(
+    (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
+  );
+
+  const page = pagination?.page ?? 1;
+  const limit = pagination?.limit ?? markets.length;
+  const offset = (page - 1) * limit;
+  const paged = markets.slice(offset, offset + limit);
+
+  const result: MarketListResult = { markets: paged, total: markets.length };
+  await cacheSet(cacheKey, result, 30);
+  return result;
 }
 
 /**
@@ -68,8 +102,9 @@ export async function getMarkets(
  * Throws NotFoundError (HTTP 404) if market_id does not exist in DB.
  */
 export async function getMarketById(market_id: string): Promise<Market> {
-  // TODO: implement
-  throw new Error('Not implemented');
+  const market = await db().findMarketById(market_id);
+  if (!market) throw new AppError(404, `Market not found: ${market_id}`);
+  return market;
 }
 
 /**
@@ -80,8 +115,17 @@ export async function getMarketById(market_id: string): Promise<Market> {
  * if DB pool sizes are stale (updated_at older than 30 seconds).
  */
 export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
-  // TODO: implement
-  throw new Error('Not implemented');
+  const market = await db().findMarketById(market_id);
+  if (!market) throw new AppError(404, `Market not found: ${market_id}`);
+
+  const total = Number(market.total_pool);
+  if (total === 0) return { odds_a: 0, odds_b: 0, odds_draw: 0 };
+
+  return {
+    odds_a: Math.floor(Number(market.pool_a) * 10_000 / total),
+    odds_b: Math.floor(Number(market.pool_b) * 10_000 / total),
+    odds_draw: Math.floor(Number(market.pool_draw) * 10_000 / total),
+  };
 }
 
 /**
@@ -123,8 +167,43 @@ export async function getMarketStats(market_id: string): Promise<MarketStats> {
 export async function getPortfolioByAddress(
   bettor_address: string,
 ): Promise<Portfolio> {
-  // TODO: implement
-  throw new Error('Not implemented');
+  const bets = await db().findBetsByAddress(bettor_address);
+  const marketIds = [...new Set(bets.map(b => b.market_id))];
+  const markets = await Promise.all(marketIds.map(id => db().findMarketById(id)));
+  const marketMap = new Map(markets.filter(Boolean).map(m => [m!.market_id, m!]));
+
+  const active_bets: Bet[] = [];
+  const past_bets: Bet[] = [];
+  const pending_claims: Bet[] = [];
+
+  for (const bet of bets) {
+    const market = marketMap.get(bet.market_id);
+    const status = market?.status;
+    if (status === 'open' || status === 'locked') {
+      active_bets.push(bet);
+    } else {
+      past_bets.push(bet);
+      if (status === 'resolved' && !bet.claimed) pending_claims.push(bet);
+    }
+  }
+
+  const total_staked_xlm = bets.reduce((s, b) => s + Number(b.amount) / 10_000_000, 0);
+  const total_won_xlm = bets
+    .filter(b => b.claimed && b.payout)
+    .reduce((s, b) => s + Number(b.payout) / 10_000_000, 0);
+  const total_lost_xlm = past_bets
+    .filter(b => !b.claimed && !pending_claims.includes(b))
+    .reduce((s, b) => s + Number(b.amount) / 10_000_000, 0);
+
+  return {
+    address: bettor_address,
+    active_bets,
+    past_bets,
+    total_staked_xlm,
+    total_won_xlm,
+    total_lost_xlm,
+    pending_claims,
+  };
 }
 
 /**

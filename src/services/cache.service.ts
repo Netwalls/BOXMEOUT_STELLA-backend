@@ -1,5 +1,7 @@
 import { redis } from '../config/redis';
 
+export { redis };
+
 export async function cacheGet<T>(key: string): Promise<T | null> {
   const data = await redis.get(key);
   return data ? (JSON.parse(data) as T) : null;

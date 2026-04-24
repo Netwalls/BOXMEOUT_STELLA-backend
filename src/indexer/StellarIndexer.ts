@@ -10,6 +10,7 @@
 // ============================================================
 
 import type { BlockchainEvent } from '../models/BlockchainEvent';
+import { pool } from '../config/db';
 
 // Raw event shape returned by Stellar RPC / Horizon
 export interface RawStellarEvent {
@@ -22,142 +23,152 @@ export interface RawStellarEvent {
   tx_hash: string;
 }
 
-/**
- * Entry point for the indexer process.
- *
- * Steps:
- *   1. Load last processed ledger via getLastProcessedLedger()
- *   2. Enter infinite loop:
- *      a. Fetch next ledger(s) from Stellar RPC
- *      b. Call processLedger() for each new ledger
- *      c. Call saveCheckpoint() after each successful ledger
- *      d. Sleep for POLL_INTERVAL_MS if no new ledgers
- *   3. On unrecoverable error: log and exit (let process manager restart)
- *
- * Should be called once at process startup.
- */
 export async function startIndexer(): Promise<void> {
   // TODO: implement
 }
 
-/**
- * Fetches all contract events emitted in a single Stellar ledger.
- * Filters to only known contract addresses (factory, all markets, treasury).
- * Calls processEvent() for each event.
- * Events must be processed in ledger order.
- */
 export async function processLedger(ledger_sequence: number): Promise<void> {
   // TODO: implement
 }
 
-/**
- * Routes a raw blockchain event to the correct domain handler.
- *
- * Routing table:
- *   "MarketCreated"    → handleMarketCreated()
- *   "BetPlaced"        → handleBetPlaced()
- *   "MarketLocked"     → handleMarketLocked()
- *   "MarketResolved"   → handleMarketResolved()
- *   "MarketCancelled"  → handleMarketCancelled()
- *   "WinningsClaimed"  → handleWinningsClaimed()
- *   unknown type       → log warning, skip
- *
- * Persists the raw event to BlockchainEvent table regardless of handler outcome.
- * Marks event.processed = true only after handler succeeds without throwing.
- */
 export async function processEvent(event: RawStellarEvent): Promise<void> {
   // TODO: implement
 }
 
-/**
- * Handles a MarketCreated event from the MarketFactory contract.
- *
- * Parses event payload to extract: market_id, contract_address, match_id,
- * fighter_a, fighter_b, weight_class, scheduled_at, fee_bps, etc.
- * Inserts a new Market row with status = "open".
- */
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parsePayload(data: string): Record<string, unknown> {
+  try { return JSON.parse(data); } catch { return {}; }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
 export async function handleMarketCreated(event: RawStellarEvent): Promise<void> {
-  // TODO: implement
+  const p = parsePayload(event.data);
+  await pool.query(
+    `INSERT INTO markets
+       (market_id, contract_address, match_id, fighter_a, fighter_b,
+        weight_class, title_fight, venue, scheduled_at, fee_bps, ledger_sequence)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     ON CONFLICT (market_id) DO NOTHING`,
+    [
+      p.market_id,
+      event.contract_address,
+      p.match_id ?? '',
+      p.fighter_a ?? '',
+      p.fighter_b ?? '',
+      p.weight_class ?? '',
+      p.title_fight ?? false,
+      p.venue ?? '',
+      p.scheduled_at ?? new Date(),
+      p.fee_bps ?? 200,
+      event.ledger_sequence,
+    ],
+  );
 }
 
-/**
- * Handles a BetPlaced event from a Market contract.
- *
- * Parses: bettor_address, market_id, side, amount, placed_at, tx_hash.
- * Inserts a Bet row.
- * Updates Market.pool_a / pool_b / pool_draw / total_pool in DB.
- */
 export async function handleBetPlaced(event: RawStellarEvent): Promise<void> {
-  // TODO: implement
+  const p = parsePayload(event.data);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO bets
+         (market_id, bettor_address, side, amount, amount_xlm, placed_at, tx_hash, ledger_sequence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (tx_hash) DO NOTHING`,
+      [
+        p.market_id,
+        p.bettor_address,
+        p.side,
+        p.amount,
+        Number(p.amount) / 10_000_000,
+        p.placed_at ?? new Date(),
+        event.tx_hash,
+        event.ledger_sequence,
+      ],
+    );
+    const col = p.side === 'fighter_a' ? 'pool_a' : p.side === 'fighter_b' ? 'pool_b' : 'pool_draw';
+    await client.query(
+      `UPDATE markets
+          SET ${col}      = ${col} + $1,
+              total_pool  = total_pool + $1,
+              updated_at  = NOW()
+        WHERE market_id   = $2`,
+      [p.amount, p.market_id],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-/**
- * Handles a MarketLocked event.
- * Updates Market.status = "locked" for the given market_id.
- */
 export async function handleMarketLocked(event: RawStellarEvent): Promise<void> {
-  // TODO: implement
+  const p = parsePayload(event.data);
+  await pool.query(
+    `UPDATE markets SET status = 'locked', updated_at = NOW() WHERE market_id = $1`,
+    [p.market_id],
+  );
 }
 
-/**
- * Handles a MarketResolved event.
- *
- * Updates Market.status = "resolved", Market.outcome, Market.resolved_at,
- * and Market.oracle_used from the event payload.
- * Enqueues a push notification job for all bettors in this market.
- */
 export async function handleMarketResolved(event: RawStellarEvent): Promise<void> {
-  // TODO: implement
+  const p = parsePayload(event.data);
+  await pool.query(
+    `UPDATE markets
+        SET status = 'resolved', outcome = $1, resolved_at = $2, oracle_used = $3, updated_at = NOW()
+      WHERE market_id = $4`,
+    [p.outcome, p.resolved_at ?? new Date(), p.oracle_used ?? null, p.market_id],
+  );
 }
 
-/**
- * Handles a MarketCancelled event.
- * Updates Market.status = "cancelled".
- * Enqueues refund-available notifications for all bettors.
- */
 export async function handleMarketCancelled(event: RawStellarEvent): Promise<void> {
-  // TODO: implement
+  const p = parsePayload(event.data);
+  await pool.query(
+    `UPDATE markets SET status = 'cancelled', updated_at = NOW() WHERE market_id = $1`,
+    [p.market_id],
+  );
 }
 
-/**
- * Handles a WinningsClaimed event.
- *
- * Marks all Bet rows for this (bettor_address, market_id) pair as claimed.
- * Stores the actual payout amount from the event payload.
- */
 export async function handleWinningsClaimed(event: RawStellarEvent): Promise<void> {
-  // TODO: implement
+  const p = parsePayload(event.data);
+  await pool.query(
+    `UPDATE bets
+        SET claimed = TRUE, claimed_at = NOW(), payout = $1
+      WHERE market_id = $2 AND bettor_address = $3`,
+    [p.payout ?? null, p.market_id, p.bettor_address],
+  );
 }
 
-/**
- * Returns the ledger sequence of the last successfully processed ledger.
- * Reads from the indexer_checkpoints table.
- * Returns GENESIS_LEDGER constant if no checkpoint exists yet.
- */
 export async function getLastProcessedLedger(): Promise<number> {
-  // TODO: implement
-  throw new Error('Not implemented');
+  const { rows } = await pool.query(
+    `SELECT last_processed_ledger FROM indexer_checkpoints ORDER BY id DESC LIMIT 1`,
+  );
+  return rows[0]?.last_processed_ledger ?? Number(process.env.GENESIS_LEDGER ?? 0);
 }
 
-/**
- * Persists the latest successfully processed ledger sequence to DB.
- * Called after every successful processLedger() to allow safe restart.
- */
 export async function saveCheckpoint(ledger_sequence: number): Promise<void> {
-  // TODO: implement
+  await pool.query(
+    `INSERT INTO indexer_checkpoints (last_processed_ledger) VALUES ($1)`,
+    [ledger_sequence],
+  );
 }
 
-/**
- * Reprocesses a historical range of ledgers.
- * Used for reindexing after a DB reset or missed event window.
- *
- * Processes ledgers in ascending order, in batches of batch_size.
- * Existing DB rows for those ledgers should be upserted (not duplicated).
- */
 export async function backfillLedgerRange(
   from_ledger: number,
   to_ledger: number,
   batch_size: number,
 ): Promise<void> {
-  // TODO: implement
+  for (let l = from_ledger; l <= to_ledger; l += batch_size) {
+    const end = Math.min(l + batch_size - 1, to_ledger);
+    for (let seq = l; seq <= end; seq++) {
+      await processLedger(seq);
+    }
+  }
 }

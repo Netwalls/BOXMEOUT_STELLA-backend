@@ -4,6 +4,7 @@ import { rateLimit } from "./middleware/rate-limit.middleware";
 import { AppError } from "./utils/AppError";
 import { logger } from "./utils/logger";
 import authRouter from "./routes/auth.routes";
+import marketRouter from "./routes/market.routes";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use(
 );
 
 app.use("/auth", authRouter);
+app.use("/api/markets", marketRouter);
 app.post("/trading/bet", (_req, res) => res.json({ ok: true }));
 app.post("/wallet/withdraw", (_req, res) => res.json({ ok: true }));
 

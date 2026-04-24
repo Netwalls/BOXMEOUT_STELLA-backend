@@ -4,7 +4,10 @@
 // Contributors: implement every function marked TODO.
 // ============================================================
 
-import type { Request, Response } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import { StrKey } from '@stellar/stellar-sdk';
+import { AppError } from '../../utils/AppError';
+import * as MarketService from '../../services/MarketService';
 
 /**
  * GET /api/markets
@@ -35,8 +38,22 @@ export async function getMarket(req: Request, res: Response): Promise<void> {
  * Returns all bets for a market.
  * Responds 404 if market not found, 200 with Bet[].
  */
-export async function getMarketBets(req: Request, res: Response): Promise<void> {
-  // TODO: implement
+export async function getMarketBets(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { market_id } = req.params;
+    const { address } = req.query;
+
+    if (address !== undefined) {
+      if (typeof address !== 'string' || !StrKey.isValidEd25519PublicKey(address)) {
+        throw new AppError(400, 'Invalid Stellar address format');
+      }
+    }
+
+    const bets = await MarketService.getBetsByMarket(market_id, address as string | undefined);
+    res.json(bets);
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**

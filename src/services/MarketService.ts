@@ -85,8 +85,11 @@ export async function getBetsByMarket(
   market_id: string,
   bettor_address?: string,
 ): Promise<Bet[]> {
-  // TODO: implement
-  throw new Error('Not implemented');
+  // TODO: replace with real DB query once pg client is wired up
+  // e.g. SELECT * FROM bets WHERE market_id = $1 [AND bettor_address = $2]
+  void bettor_address;
+  void market_id;
+  return [];
 }
 
 /**

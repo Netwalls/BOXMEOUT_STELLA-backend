@@ -67,3 +67,13 @@ CREATE TABLE IF NOT EXISTS oracle_reports (
   tx_hash          TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS notification_jobs (
+  id               SERIAL PRIMARY KEY,
+  bettor_address   TEXT        NOT NULL,
+  market_id        TEXT        NOT NULL REFERENCES markets(market_id),
+  job_type         TEXT        NOT NULL,
+  status           TEXT        NOT NULL DEFAULT 'pending',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at     TIMESTAMPTZ
+);

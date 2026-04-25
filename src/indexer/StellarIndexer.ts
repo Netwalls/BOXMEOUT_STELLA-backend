@@ -48,14 +48,14 @@ export async function processLedger(ledger_sequence: number): Promise<void> {
     };
 
     const response = await server.getEvents(request);
-    
+
     if (!response.events || response.events.length === 0) {
       return;
     }
 
     for (const event of response.events) {
       const contractId = typeof event.contractId === 'string' ? event.contractId : event.contractId?.toString() || '';
-      
+
       const rawEvent: RawStellarEvent = {
         contract_address: contractId,
         event_type: event.topic[0]?.toString() || 'unknown',
@@ -66,12 +66,17 @@ export async function processLedger(ledger_sequence: number): Promise<void> {
         tx_hash: event.txHash
       };
 
-      // Persist raw event to blockchain_events table
+      // Persist raw event to blockchain_events table — use DO UPDATE so
+      // re-indexing during a backfill refreshes stale rows instead of skipping.
       await pool.query(
         `INSERT INTO blockchain_events
            (contract_address, event_type, payload, ledger_sequence, ledger_close_time, tx_hash)
          VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (tx_hash) DO NOTHING`,
+         ON CONFLICT (tx_hash) DO UPDATE
+           SET contract_address  = EXCLUDED.contract_address,
+               event_type        = EXCLUDED.event_type,
+               payload           = EXCLUDED.payload,
+               ledger_close_time = EXCLUDED.ledger_close_time`,
         [
           rawEvent.contract_address,
           rawEvent.event_type,
@@ -201,7 +206,7 @@ export async function handleMarketResolved(event: RawStellarEvent): Promise<void
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     // Update market status and outcome
     await client.query(
       `UPDATE markets
@@ -270,15 +275,46 @@ export async function saveCheckpoint(ledger_sequence: number): Promise<void> {
   );
 }
 
+/**
+ * Backfills all ledgers in [from_ledger, to_ledger] inclusive.
+ *
+ * - Processes ledgers in ascending order.
+ * - Fetches events in batches of `batch_size` to avoid memory pressure.
+ * - Uses ON CONFLICT DO UPDATE (via processLedger) so re-runs are safe.
+ * - Logs progress every 1 000 ledgers and emits a completion summary.
+ */
 export async function backfillLedgerRange(
   from_ledger: number,
   to_ledger: number,
   batch_size: number,
 ): Promise<void> {
-  for (let l = from_ledger; l <= to_ledger; l += batch_size) {
-    const end = Math.min(l + batch_size - 1, to_ledger);
-    for (let seq = l; seq <= end; seq++) {
+  const total = to_ledger - from_ledger + 1;
+  console.log(
+    `[Backfill] Starting — ledgers ${from_ledger}–${to_ledger} ` +
+    `(${total} ledgers, batch_size=${batch_size})`,
+  );
+
+  let processed = 0;
+
+  for (let batchStart = from_ledger; batchStart <= to_ledger; batchStart += batch_size) {
+    const batchEnd = Math.min(batchStart + batch_size - 1, to_ledger);
+
+    for (let seq = batchStart; seq <= batchEnd; seq++) {
       await processLedger(seq);
+      processed++;
+
+      if (processed % 1_000 === 0) {
+        const pct = ((processed / total) * 100).toFixed(1);
+        console.log(
+          `[Backfill] Progress: ${processed}/${total} ledgers processed ` +
+          `(${pct}%, current ledger: ${seq})`,
+        );
+      }
     }
+
+    // Persist checkpoint after every batch so a restart only re-does the last batch
+    await saveCheckpoint(batchEnd);
   }
+
+  console.log(`[Backfill] Complete — ${processed} ledgers processed.`);
 }

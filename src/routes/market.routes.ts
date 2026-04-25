@@ -1,7 +1,16 @@
 import { Router } from 'express';
-import { getMarket, getMarketBets, getMarketBetsValidation } from '../api/controllers/MarketController';
+import {
+    listMarkets,
+    listMarketsValidation,
+    getMarket,
+    getMarketBets,
+    getMarketBetsValidation,
+} from '../api/controllers/MarketController';
 
 const router = Router();
+
+// Issue #18 — GET /api/markets (paginated list)
+router.get('/', listMarketsValidation, listMarkets);
 
 router.get('/:market_id', getMarket);
 router.get('/:market_id/bets', getMarketBetsValidation, getMarketBets);

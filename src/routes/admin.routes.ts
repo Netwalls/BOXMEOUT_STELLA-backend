@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AppError } from '../utils/AppError';
-import { flagDispute, cancelMarket } from '../api/controllers/AdminController';
+import { flagDispute, cancelMarket, resolveDispute } from '../api/controllers/AdminController';
 
 const router = Router();
 
@@ -51,6 +51,14 @@ router.post('/dispute/:market_id', requireAdmin, async (req: Request, res: Respo
 router.post('/cancel/:market_id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await cancelMarket(req, res);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/resolve-dispute/:market_id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await resolveDispute(req, res);
   } catch (err) {
     next(err);
   }

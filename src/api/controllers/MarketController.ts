@@ -1,7 +1,6 @@
 // ============================================================
 // BOXMEOUT — Market Controller
 // Handles HTTP requests for market-related endpoints.
-// Contributors: implement every function marked TODO.
 // ============================================================
 
 import type { Request, Response, NextFunction } from 'express';
@@ -11,6 +10,30 @@ import { AppError } from '../../utils/AppError';
 import { validateQuery } from '../middleware/validate';
 import * as MarketService from '../../services/MarketService';
 
+// ---------------------------------------------------------------------------
+// Issue #18 — listMarkets
+// ---------------------------------------------------------------------------
+
+const VALID_STATUSES = ['open', 'locked', 'resolved', 'cancelled', 'disputed'] as const;
+
+const listMarketsQuerySchema = z.object({
+  status: z
+    .enum(VALID_STATUSES, {
+      errorMap: () => ({ message: `status must be one of: ${VALID_STATUSES.join(', ')}` }),
+    })
+    .optional(),
+  weight_class: z.string().min(1).optional(),
+  page: z.coerce.number().int().min(1, { message: 'page must be an integer ≥ 1' }).default(1),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1, { message: 'limit must be between 1 and 100' })
+    .max(100, { message: 'limit must be between 1 and 100' })
+    .default(20),
+});
+
+export const listMarketsValidation = validateQuery(listMarketsQuerySchema);
+
 /**
  * GET /api/markets
  * Query params: status, weight_class, page (default 1), limit (default 20)
@@ -19,8 +42,17 @@ import * as MarketService from '../../services/MarketService';
  * Validates query params with Zod before passing to MarketService.
  * Responds 400 on invalid params, 200 with { markets, total, page, limit }.
  */
-export async function listMarkets(_req: Request, _res: Response): Promise<void> {
-  // TODO: implement
+export async function listMarkets(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { status, weight_class, page, limit } = req.query as z.infer<typeof listMarketsQuerySchema>;
+    const { markets, total } = await MarketService.getMarkets(
+      { status, weight_class },
+      { page, limit },
+    );
+    res.status(200).json({ markets, total, page, limit });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**
@@ -90,4 +122,44 @@ export async function getMarketBets(req: Request, res: Response, next: NextFunct
  */
 export async function getMarketStats(_req: Request, _res: Response): Promise<void> {
   // TODO: implement
+}
+
+// ---------------------------------------------------------------------------
+// Issue #22 — getPortfolio
+// ---------------------------------------------------------------------------
+
+const portfolioAddressSchema = z.object({
+  address: z
+    .string()
+    .refine((v) => StrKey.isValidEd25519PublicKey(v), {
+      message: 'Invalid Stellar address format — must be a valid G... public key',
+    }),
+});
+
+/**
+ * GET /api/portfolio/:address
+ *
+ * Returns a Portfolio summary for the given Stellar address.
+ * - Responds 200 with Portfolio object (zeros for unknown addresses, never 404)
+ * - Responds 400 if address format is invalid
+ */
+export async function getPortfolio(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const parseResult = portfolioAddressSchema.safeParse({ address: req.params.address });
+    if (!parseResult.success) {
+      const errors = parseResult.error.issues.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      res.status(400).json({ errors });
+      return;
+    }
+
+    const { address } = parseResult.data;
+
+    const portfolio = await MarketService.getPortfolioByAddress(address);
+    res.status(200).json(portfolio);
+  } catch (err) {
+    next(err);
+  }
 }

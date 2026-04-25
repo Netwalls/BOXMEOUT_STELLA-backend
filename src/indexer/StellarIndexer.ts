@@ -9,7 +9,6 @@
 // DO NOT change function signatures.
 // ============================================================
 
-import type { BlockchainEvent } from '../models/BlockchainEvent';
 import { pool } from '../config/db';
 
 // Raw event shape returned by Stellar RPC / Horizon
@@ -27,11 +26,11 @@ export async function startIndexer(): Promise<void> {
   // TODO: implement
 }
 
-export async function processLedger(ledger_sequence: number): Promise<void> {
+export async function processLedger(_ledger_sequence: number): Promise<void> {
   // TODO: implement
 }
 
-export async function processEvent(event: RawStellarEvent): Promise<void> {
+export async function processEvent(_event: RawStellarEvent): Promise<void> {
   // TODO: implement
 }
 
@@ -130,10 +129,39 @@ export async function handleMarketResolved(event: RawStellarEvent): Promise<void
 
 export async function handleMarketCancelled(event: RawStellarEvent): Promise<void> {
   const p = parsePayload(event.data);
-  await pool.query(
-    `UPDATE markets SET status = 'cancelled', updated_at = NOW() WHERE market_id = $1`,
-    [p.market_id],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Update market status and store cancel reason
+    await client.query(
+      `UPDATE markets SET status = 'cancelled', cancel_reason = $1, updated_at = NOW() WHERE market_id = $2`,
+      [p.reason ?? null, p.market_id],
+    );
+    
+    // Get all bettors for this market to enqueue notifications
+    const bettorsResult = await client.query(
+      `SELECT DISTINCT bettor_address FROM bets WHERE market_id = $1`,
+      [p.market_id],
+    );
+    
+    // Enqueue refund-available notifications for all bettors
+    for (const row of bettorsResult.rows) {
+      await client.query(
+        `INSERT INTO notifications (bettor_address, market_id, type, created_at)
+         VALUES ($1, $2, 'refund_available', NOW())
+         ON CONFLICT DO NOTHING`,
+        [row.bettor_address, p.market_id],
+      );
+    }
+    
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function handleWinningsClaimed(event: RawStellarEvent): Promise<void> {

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS markets (
   fee_bps          INTEGER     NOT NULL DEFAULT 200,
   resolved_at      TIMESTAMPTZ,
   oracle_used      TEXT,
+  cancel_reason    TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ledger_sequence  INTEGER     NOT NULL DEFAULT 0
@@ -66,4 +67,13 @@ CREATE TABLE IF NOT EXISTS oracle_reports (
   accepted         BOOLEAN     NOT NULL DEFAULT FALSE,
   tx_hash          TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id               SERIAL PRIMARY KEY,
+  bettor_address   TEXT        NOT NULL,
+  market_id        TEXT        NOT NULL,
+  type             TEXT        NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(bettor_address, market_id, type)
 );

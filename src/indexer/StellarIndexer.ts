@@ -9,7 +9,6 @@
 // DO NOT change function signatures.
 // ============================================================
 
-import type { BlockchainEvent } from '../models/BlockchainEvent';
 import { pool } from '../config/db';
 import { logger } from '../utils/logger';
 
@@ -52,12 +51,12 @@ export async function startIndexer(): Promise<void> {
           await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         }
       } catch (err) {
-        logger.error('Error in indexer polling loop:', err);
+        logger.error({ err }, 'Error in indexer polling loop');
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       }
     }
   } catch (err) {
-    logger.error('Unrecoverable indexer error:', err);
+    logger.error({ err }, 'Unrecoverable indexer error');
     process.exit(1);
   }
 }
@@ -78,7 +77,7 @@ export async function processLedger(ledger_sequence: number): Promise<void> {
       await processEvent(event);
     }
   } catch (err) {
-    logger.error(`Error processing ledger ${ledger_sequence}:`, err);
+    logger.error({ err }, `Error processing ledger ${ledger_sequence}`);
     throw err;
   }
 }
@@ -123,7 +122,7 @@ export async function processEvent(event: RawStellarEvent): Promise<void> {
         await handleWinningsClaimed(event);
         break;
       default:
-        logger.debug(`Unknown event type: ${event.event_type}`);
+        logger.debug({ eventType: event.event_type }, 'Unknown event type');
     }
 
     // Mark as processed
@@ -132,7 +131,7 @@ export async function processEvent(event: RawStellarEvent): Promise<void> {
       [event.tx_hash],
     );
   } catch (err) {
-    logger.error(`Error processing event ${event.tx_hash}:`, err);
+    logger.error({ err, txHash: event.tx_hash }, 'Error processing event');
     throw err;
   }
 }

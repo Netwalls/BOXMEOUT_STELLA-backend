@@ -4,10 +4,18 @@
 // ============================================================
 
 import type { Request, Response } from 'express';
-import { z } from 'zod';
+import { Keypair } from '@stellar/stellar-sdk';
 import { AppError } from '../../utils/AppError';
 import * as StellarService from '../../services/StellarService';
 import { db } from '../../services/MarketService';
+
+function getAdminKeypair(): Keypair {
+  const adminSecret = process.env.ADMIN_SECRET_KEY;
+  if (!adminSecret) {
+    throw new AppError(500, 'ADMIN_SECRET_KEY env var is required');
+  }
+  return Keypair.fromSecret(adminSecret);
+}
 
 /**
  * POST /api/admin/dispute/:market_id
@@ -43,12 +51,14 @@ export async function flagDispute(
 
   // Assume admin address from env or user
   const adminAddress = process.env.ADMIN_ADDRESS ?? 'G...'; // TODO: get from user
+  const adminKeypair = getAdminKeypair();
 
   // Call StellarService
   const txHash = await StellarService.invokeContract(
     market.contract_address,
     'dispute_market',
-    [adminAddress, reason]
+    [adminAddress, reason] as unknown as any,
+    adminKeypair
   );
 
   // Update DB
@@ -69,8 +79,8 @@ export async function flagDispute(
  *   4. Respond 200 with { tx_hash }
  */
 export async function resolveDispute(
-  req: Request,
-  res: Response,
+  _req: Request,
+  _res: Response,
 ): Promise<void> {
   // TODO: implement
 }
@@ -109,12 +119,14 @@ export async function cancelMarket(
 
   // Assume admin address from env or user
   const adminAddress = process.env.ADMIN_ADDRESS ?? 'G...'; // TODO: get from user
+  const adminKeypair = getAdminKeypair();
 
   // Call StellarService
   const txHash = await StellarService.invokeContract(
     market.contract_address,
     'cancel_market',
-    [adminAddress, reason]
+    [adminAddress, reason] as unknown as any,
+    adminKeypair
   );
 
   // Update DB

@@ -9,7 +9,6 @@
 // DO NOT change function signatures.
 // ============================================================
 
-import type { BlockchainEvent } from '../models/BlockchainEvent';
 import { pool } from '../config/db';
 
 // Raw event shape returned by Stellar RPC / Horizon
@@ -27,11 +26,11 @@ export async function startIndexer(): Promise<void> {
   // TODO: implement
 }
 
-export async function processLedger(ledger_sequence: number): Promise<void> {
+export async function processLedger(_ledger_sequence: number): Promise<void> {
   // TODO: implement
 }
 
-export async function processEvent(event: RawStellarEvent): Promise<void> {
+export async function processEvent(_event: RawStellarEvent): Promise<void> {
   // TODO: implement
 }
 

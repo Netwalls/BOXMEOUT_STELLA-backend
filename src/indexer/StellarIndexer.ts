@@ -9,7 +9,6 @@
 // DO NOT change function signatures.
 // ============================================================
 
-import type { BlockchainEvent } from '../models/BlockchainEvent';
 import { pool } from '../config/db';
 import { rpc } from '@stellar/stellar-sdk';
 
@@ -55,13 +54,15 @@ export async function processLedger(ledger_sequence: number): Promise<void> {
     }
 
     for (const event of response.events) {
+      const contractId = typeof event.contractId === 'string' ? event.contractId : event.contractId?.toString() || '';
+      
       const rawEvent: RawStellarEvent = {
-        contract_address: event.contractId,
+        contract_address: contractId,
         event_type: event.topic[0]?.toString() || 'unknown',
         topics: event.topic.map(t => t.toString()),
         data: JSON.stringify(event.value),
         ledger_sequence: event.ledger,
-        ledger_close_time: new Date(event.ledgerCloseTime * 1000).toISOString(),
+        ledger_close_time: event.ledgerClosedAt,
         tx_hash: event.txHash
       };
 

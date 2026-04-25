@@ -56,6 +56,10 @@ export interface MarketOdds {
   odds_draw: number;
 }
 
+export interface MarketWithOdds extends Market {
+  odds: MarketOdds;
+}
+
 export interface Portfolio {
   address: string;
   active_bets: Bet[];
@@ -147,13 +151,28 @@ export async function getMarkets(
 }
 
 /**
- * Returns a single market by its on-chain market_id string.
- * Throws NotFoundError (HTTP 404) if market_id does not exist in DB.
+ * Returns a single market by its on-chain market_id string, enriched with
+ * live odds from getMarketOdds().
+ *
+ * Steps:
+ *   1. Check Redis cache — return cached result if fresh (TTL 10s)
+ *   2. Query DB; throw AppError 404 if no row found
+ *   3. Fetch live odds via getMarketOdds()
+ *   4. Merge market + odds, store in cache for 10 seconds, then return
  */
-export async function getMarketById(market_id: string): Promise<Market> {
+export async function getMarketById(market_id: string): Promise<MarketWithOdds> {
+  const cacheKey = `market:${market_id}`;
+  const cached = await cacheGet<MarketWithOdds>(cacheKey);
+  if (cached) return cached;
+
   const market = await db().findMarketById(market_id);
   if (!market) throw new AppError(404, `Market not found: ${market_id}`);
-  return market;
+
+  const odds = await getMarketOdds(market_id);
+  const result: MarketWithOdds = { ...market, odds };
+
+  await cacheSet(cacheKey, result, 10);
+  return result;
 }
 
 /**
@@ -194,6 +213,27 @@ export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
     odds_b: Number(pool_b * 10000n / total_pool),
     odds_draw: Number(pool_draw * 10000n / total_pool),
   };
+}
+
+/**
+ * Returns all bets placed by a given Stellar address across all markets.
+ * Returns an empty array (never 404) when the address has no bets.
+ */
+export async function getBetsByAddress(bettor_address: string): Promise<Bet[]> {
+  if (_db) {
+    return db().findBetsByAddress(bettor_address);
+  }
+
+  const { rows } = await pool.query(
+    'SELECT * FROM bets WHERE bettor_address = $1 ORDER BY placed_at DESC',
+    [bettor_address],
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    placed_at: new Date(row.placed_at),
+    claimed_at: row.claimed_at ? new Date(row.claimed_at) : null,
+  } as Bet));
 }
 
 /**

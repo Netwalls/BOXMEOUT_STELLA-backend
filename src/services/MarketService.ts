@@ -197,6 +197,27 @@ export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
 }
 
 /**
+ * Returns all bets placed by a given Stellar address across all markets.
+ * Returns an empty array (never 404) when the address has no bets.
+ */
+export async function getBetsByAddress(bettor_address: string): Promise<Bet[]> {
+  if (_db) {
+    return db().findBetsByAddress(bettor_address);
+  }
+
+  const { rows } = await pool.query(
+    'SELECT * FROM bets WHERE bettor_address = $1 ORDER BY placed_at DESC',
+    [bettor_address],
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    placed_at: new Date(row.placed_at),
+    claimed_at: row.claimed_at ? new Date(row.claimed_at) : null,
+  } as Bet));
+}
+
+/**
  * Returns all bets for a given market.
  * If bettor_address is provided, filters to only that bettor's bets.
  */

@@ -7,6 +7,7 @@ import { logger } from "./utils/logger";
 import authRouter from "./routes/auth.routes";
 import marketRouter from "./routes/market.routes";
 import adminRouter from "./routes/admin.routes";
+import betRouter from "./routes/bet.routes";
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use(
 app.use("/auth", authRouter);
 app.use("/api/markets", marketRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/bets", betRouter);
 app.post("/trading/bet", (_req, res) => res.json({ ok: true }));
 app.post("/wallet/withdraw", (_req, res) => res.json({ ok: true }));
 

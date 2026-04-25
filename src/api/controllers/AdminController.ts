@@ -57,6 +57,7 @@ export async function flagDispute(
   const txHash = await StellarService.invokeContract(
     market.contract_address,
     'dispute_market',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [adminAddress, reason] as unknown as any,
     adminKeypair
   );
@@ -125,6 +126,7 @@ export async function cancelMarket(
   const txHash = await StellarService.invokeContract(
     market.contract_address,
     'cancel_market',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [adminAddress, reason] as unknown as any,
     adminKeypair
   );

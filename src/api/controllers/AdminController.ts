@@ -84,11 +84,41 @@ export async function resolveDispute(
  *   1. Require admin JWT (middleware)
  *   2. Validate market exists and is in "open" or "locked" status
  *   3. Call StellarService.invokeContract("cancel_market", [admin, reason])
- *   4. Respond 200 with { tx_hash }
+ *   4. Update market status to 'cancelled' in DB
+ *   5. Respond 200 with { tx_hash }
  */
 export async function cancelMarket(
   req: Request,
   res: Response,
 ): Promise<void> {
-  // TODO: implement
+  const { market_id } = req.params;
+  const { reason } = req.body;
+
+  if (!reason || typeof reason !== 'string') {
+    throw new AppError(400, 'Reason is required');
+  }
+
+  // Validate market exists and status
+  const market = await db().findMarketById(market_id);
+  if (!market) {
+    throw new AppError(404, `Market not found: ${market_id}`);
+  }
+  if (market.status !== 'open' && market.status !== 'locked') {
+    throw new AppError(400, `Market must be open or locked to cancel (current status: ${market.status})`);
+  }
+
+  // Assume admin address from env or user
+  const adminAddress = process.env.ADMIN_ADDRESS ?? 'G...'; // TODO: get from user
+
+  // Call StellarService
+  const txHash = await StellarService.invokeContract(
+    market.contract_address,
+    'cancel_market',
+    [adminAddress, reason]
+  );
+
+  // Update DB
+  await db().updateMarketStatus(market_id, 'cancelled');
+
+  res.json({ tx_hash: txHash });
 }

@@ -26,6 +26,26 @@ export class UsersController {
   }
 
   /**
+   * PATCH /api/users/me — requires auth; updates username and/or avatarUrl (issue #36)
+   */
+  async updateMyProfile(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.user!.userId;
+      const updated = await userService.updateProfile(userId, req.body);
+      return res.status(200).json({ success: true, data: updated });
+    } catch (error: any) {
+      if (error.message === 'Username already taken') {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'USERNAME_TAKEN', message: 'Username is already in use' },
+        });
+      }
+      logger.error('UsersController.updateMyProfile error', { error });
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  }
+
+  /**
    * GET /api/users/me — requires auth; returns full profile
    */
   async getMyProfile(req: AuthenticatedRequest, res: Response) {

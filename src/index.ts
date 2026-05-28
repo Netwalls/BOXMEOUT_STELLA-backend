@@ -1,6 +1,7 @@
 import express from "express";
 import pinoHttp from "pino-http";
 import { validateEnv } from "./config/env";
+import { setupSwagger } from "./config/swagger";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { rateLimit } from "./middleware/rate-limit.middleware";
 import { AppError } from "./utils/AppError";
@@ -18,6 +19,11 @@ const app = express();
 // Middleware
 app.use(pinoHttp({ logger }));
 app.use(express.json());
+
+// Setup Swagger/OpenAPI documentation
+if (env.NODE_ENV === 'development') {
+  setupSwagger(app);
+}
 
 // Routes
 app.get("/health", (_req, res) => {
@@ -78,6 +84,9 @@ app.use(errorMiddleware);
 const PORT = env.PORT;
 app.listen(PORT, () => {
   logger.info(`Server running on port ${PORT}`);
+  if (env.NODE_ENV === 'development') {
+    logger.info(`Swagger UI available at http://localhost:${PORT}/api/docs`);
+  }
 });
 
 export default app;

@@ -64,6 +64,14 @@ components:
         average_bet_xlm:   { type: number }
         total_pooled_xlm:  { type: number }
 
+    PlatformStats:
+      type: object
+      properties:
+        totalMarkets:  { type: integer }
+        activeMarkets: { type: integer }
+        totalVolume:   { type: number }
+        totalBets:     { type: integer }
+
     Bet:
       type: object
       properties:
@@ -119,6 +127,19 @@ components:
         message: { type: string }
 
 paths:
+  /api/stats:
+    get:
+      summary: Get platform statistics
+      operationId: getPlatformStats
+      tags: [Platform]
+      description: Returns aggregate platform statistics for the home page banner. Cached for 60 seconds.
+      responses:
+        '200':
+          description: Platform statistics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformStats' }
+
   /api/markets:
     get:
       summary: List markets

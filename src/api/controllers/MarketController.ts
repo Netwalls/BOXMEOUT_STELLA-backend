@@ -103,7 +103,7 @@ export async function getMarketBets(req: Request, res: Response, next: NextFunct
 
     if (address !== undefined) {
       if (typeof address !== 'string' || !StrKey.isValidEd25519PublicKey(address)) {
-        throw new AppError(400, 'Invalid Stellar address format');
+        throw AppError.badRequest('Invalid Stellar address format');
       }
     }
 
@@ -182,7 +182,7 @@ export async function getBetsByAddress(req: Request, res: Response, next: NextFu
     const { bettor_address } = req.params;
 
     if (!StrKey.isValidEd25519PublicKey(bettor_address)) {
-      throw new AppError(400, 'Invalid Stellar address format — must be a valid G... public key');
+      throw AppError.badRequest('Invalid Stellar address format — must be a valid G... public key');
     }
 
     const bets = await MarketService.getBetsByAddress(bettor_address);

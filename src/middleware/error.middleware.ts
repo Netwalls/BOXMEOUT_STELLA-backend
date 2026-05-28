@@ -10,12 +10,13 @@ export function errorMiddleware(
 ): void {
   if (err instanceof AppError) {
     if (err.statusCode >= 500) {
-      logger.error({ message: err.message, statusCode: err.statusCode, details: err.details });
+      logger.error({ message: err.message, statusCode: err.statusCode, code: err.code, details: err.details });
     }
     res.status(err.statusCode).json({
       error: {
-        code: err.statusCode,
+        statusCode: err.statusCode,
         message: err.message,
+        ...(err.code && { code: err.code }),
         ...(err.details !== undefined && { details: err.details }),
       },
     });
@@ -27,7 +28,7 @@ export function errorMiddleware(
 
   res.status(500).json({
     error: {
-      code: 500,
+      statusCode: 500,
       message: process.env.NODE_ENV === 'production' ? 'Internal server error' : message,
     },
   });

@@ -166,7 +166,7 @@ export async function getMarketById(market_id: string): Promise<MarketWithOdds> 
   if (cached) return cached;
 
   const market = await db().findMarketById(market_id);
-  if (!market) throw new AppError(404, `Market not found: ${market_id}`);
+  if (!market) throw AppError.notFound(`Market not found: ${market_id}`);
 
   const odds = await getMarketOdds(market_id);
   const result: MarketWithOdds = { ...market, odds };
@@ -184,7 +184,7 @@ export async function getMarketById(market_id: string): Promise<MarketWithOdds> 
  */
 export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
   const market = await db().findMarketById(market_id);
-  if (!market) throw new AppError(404, `Market not found: ${market_id}`);
+  if (!market) throw AppError.notFound(`Market not found: ${market_id}`);
 
   const now = new Date();
   const isStale = (now.getTime() - market.updated_at.getTime()) > 30_000; // 30 seconds

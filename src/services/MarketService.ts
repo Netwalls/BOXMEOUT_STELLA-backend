@@ -4,7 +4,7 @@
 // Contributors: implement every function marked TODO.
 // ============================================================
 
-import type { Market, MarketStats } from '../models/Market';
+import type { Market, MarketStats, PlatformStats } from '../models/Market';
 import type { Bet } from '../models/Bet';
 import { pool } from '../config/db';
 import { cacheGet, cacheSet } from './cache.service';
@@ -371,12 +371,52 @@ export async function getBetsByAddress(bettor_address: string): Promise<Bet[]> {
 }
 
 /**
- * Returns all markets in which a given address has at least one bet.
- * Used as a helper by getPortfolioByAddress.
+ * Returns aggregate platform statistics for the home page banner.
+ * Queries: COUNT(*) WHERE status='Open', SUM(total_pool), COUNT(bets)
+ * Results cached in Redis for 60 seconds.
  */
-export async function getMarketsByBettor(
-  _bettor_address: string,
-): Promise<Market[]> {
-  // TODO: implement
-  throw new Error('Not implemented');
+export async function getPlatformStats(): Promise<PlatformStats> {
+  const cacheKey = 'platform:stats';
+  const cached = await cacheGet<PlatformStats>(cacheKey);
+  if (cached) return cached;
+
+  if (_db) {
+    // If using test adapter, compute from in-memory data
+    const allMarkets = await db().findMarkets();
+    const openMarkets = allMarkets.filter(m => m.status === 'open');
+    const allBets = await Promise.all(
+      allMarkets.map(m => db().findBetsByMarket(m.market_id))
+    ).then(results => results.flat());
+
+    const totalVolume = allMarkets.reduce((sum, m) => sum + Number(m.total_pool) / 10_000_000, 0);
+
+    const stats: PlatformStats = {
+      totalMarkets: allMarkets.length,
+      activeMarkets: openMarkets.length,
+      totalVolume,
+      totalBets: allBets.length,
+    };
+
+    await cacheSet(cacheKey, stats, 60);
+    return stats;
+  }
+
+  const marketsResult = await pool.query(
+    "SELECT COUNT(*) as total, SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as active, SUM(total_pool) as volume FROM markets"
+  );
+
+  const betsResult = await pool.query('SELECT COUNT(*) as total FROM bets');
+
+  const { total: totalMarkets, active: activeMarkets, volume: totalPoolStroops } = marketsResult.rows[0];
+  const { total: totalBets } = betsResult.rows[0];
+
+  const stats: PlatformStats = {
+    totalMarkets: Number(totalMarkets) || 0,
+    activeMarkets: Number(activeMarkets) || 0,
+    totalVolume: (Number(totalPoolStroops) || 0) / 10_000_000,
+    totalBets: Number(totalBets) || 0,
+  };
+
+  await cacheSet(cacheKey, stats, 60);
+  return stats;
 }

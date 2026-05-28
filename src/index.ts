@@ -8,8 +8,7 @@ import { logger } from "./utils/logger";
 import authRouter from "./routes/auth.routes";
 import marketRouter from "./routes/market.routes";
 import adminRouter from "./routes/admin.routes";
-import { getPortfolio } from "./api/controllers/MarketController";
-import { getBetsByAddress } from "./api/controllers/MarketController";
+import { getPortfolio, getBetsByAddress, getPlatformStats } from "./api/controllers/MarketController";
 
 // Validate environment variables on startup
 const env = validateEnv();
@@ -38,6 +37,7 @@ app.use(
 
 app.use("/auth", authRouter);
 app.use("/api/markets", marketRouter);
+app.get("/api/stats", getPlatformStats);
 app.get("/api/portfolio/:address", getPortfolio);
 app.get("/api/bets/:bettor_address", getBetsByAddress);
 app.use("/api/admin", adminRouter);

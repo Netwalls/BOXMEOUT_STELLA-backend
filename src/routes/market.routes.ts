@@ -6,6 +6,7 @@ import {
     getMarketBets,
     getMarketBetsValidation,
     getMarketStats,
+    getPlatformStats,
 } from '../api/controllers/MarketController';
 
 const router = Router();

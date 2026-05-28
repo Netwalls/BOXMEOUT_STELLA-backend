@@ -191,3 +191,19 @@ export async function getBetsByAddress(req: Request, res: Response, next: NextFu
     next(err);
   }
 }
+
+/**
+ * GET /api/stats
+ *
+ * Returns aggregate platform statistics for the home page banner.
+ * Cached for 60 seconds.
+ * Responds 200 with { totalMarkets, activeMarkets, totalVolume, totalBets }.
+ */
+export async function getPlatformStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const stats = await MarketService.getPlatformStats();
+    res.status(200).json(stats);
+  } catch (err) {
+    next(err);
+  }
+}

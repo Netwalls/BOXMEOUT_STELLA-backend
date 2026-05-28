@@ -346,3 +346,51 @@ export async function adminOverrideResult(
 
   return tx_hash;
 }
+
+/**
+ * Raises a dispute on-chain for a market with an admin-verified outcome.
+ * Called by AdminController.resolveDispute() to override oracle results.
+ *
+ * Steps:
+ *   1. Retrieve market contract address by match_id
+ *   2. Call StellarService.invokeContract("raise_dispute", [admin, final_outcome])
+ *   3. Save OracleReport to DB with oracle_address = 'admin'
+ *   4. Return tx_hash
+ */
+export async function raiseDispute(
+  match_id: string,
+  outcome: FightOutcome,
+  admin_signature: string,
+): Promise<string> {
+  const secret = process.env.ADMIN_PRIVATE_KEY;
+  if (!secret) throw new Error('ADMIN_PRIVATE_KEY env var is required');
+
+  const keypair = Keypair.fromSecret(secret);
+  const adminAddress = keypair.publicKey();
+  const reported_at = new Date();
+
+  // Retrieve market contract address
+  const marketResult = await pool.query(
+    'SELECT contract_address FROM markets WHERE match_id = $1 LIMIT 1',
+    [match_id],
+  );
+  if (marketResult.rowCount === 0) {
+    throw new Error(`Market not found for match_id: ${match_id}`);
+  }
+  const contract_address = marketResult.rows[0].contract_address;
+
+  // Invoke raise_dispute on-chain
+  const outcomeIndex = OUTCOME_INDEX[outcome];
+  const tx_hash = await invokeContract(contract_address, 'raise_dispute', [adminAddress, outcomeIndex] as unknown[]);
+
+  // Record outcome in DB
+  await pool.query(
+    `INSERT INTO oracle_reports
+       (match_id, oracle_address, outcome, reported_at, signature, accepted, tx_hash)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING *`,
+    [match_id, 'admin', outcome, reported_at, admin_signature, true, tx_hash],
+  );
+
+  return tx_hash;
+}

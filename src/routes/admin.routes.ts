@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AppError } from '../utils/AppError';
-import { flagDispute, cancelMarket, resolveDispute } from '../api/controllers/AdminController';
+import { flagDispute, cancelMarket, resolveDispute, listDisputes } from '../api/controllers/AdminController';
 
 const router = Router();
 
@@ -39,6 +39,14 @@ async function requireAdmin(req: Request, _res: Response, next: NextFunction): P
     next(err instanceof AppError ? err : new AppError(401, 'Invalid or expired token'));
   }
 }
+
+router.get('/disputes', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await listDisputes(req, res);
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.post('/dispute/:market_id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {

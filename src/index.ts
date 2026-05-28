@@ -4,6 +4,7 @@ import { validateEnv } from "./config/env";
 import { setupSwagger } from "./config/swagger";
 import { errorMiddleware } from "./middleware/error.middleware";
 import { rateLimit } from "./middleware/rate-limit.middleware";
+import { requestLogging } from "./middleware/request-logging.middleware";
 import { AppError } from "./utils/AppError";
 import { logger } from "./utils/logger";
 import authRouter from "./routes/auth.routes";
@@ -19,6 +20,7 @@ const app = express();
 // Middleware
 app.use(pinoHttp({ logger }));
 app.use(express.json());
+app.use(requestLogging);
 
 // Setup Swagger/OpenAPI documentation
 if (env.NODE_ENV === 'development') {

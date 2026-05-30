@@ -6,6 +6,14 @@ import { pool } from '../../src/config/db';
 
 jest.mock('../../src/services/StellarService');
 jest.mock('../../src/config/db');
+jest.mock('../../src/services/cache.service', () => ({
+  cacheGet: jest.fn().mockResolvedValue(undefined),
+  cacheSet: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock global fetch for external API calls
+const mockFetch = jest.fn() as jest.Mock;
+global.fetch = mockFetch;
 
 describe('OracleService', () => {
   const mockKeypair = Keypair.random();
@@ -29,12 +37,29 @@ describe('OracleService', () => {
 
   describe('submitFightResult', () => {
     it('should submit fight result successfully', async () => {
+      const mockInsertResult = {
+        rowCount: 1,
+        rows: [
+          {
+            id: 1,
+            match_id: mockMatchId,
+            oracle_address: mockOracleAddress,
+            outcome: mockOutcome,
+            reported_at: new Date(),
+            signature: 'sig-123',
+            accepted: false,
+            tx_hash: null,
+            created_at: new Date(),
+          },
+        ],
+      };
+
       const mockMarketResult = {
         rowCount: 1,
         rows: [{ contract_address: 'contract-123' }],
       };
 
-      const mockInsertResult = {
+      const mockUpdateResult = {
         rowCount: 1,
         rows: [
           {
@@ -46,13 +71,15 @@ describe('OracleService', () => {
             signature: 'sig-123',
             accepted: true,
             tx_hash: mockTxHash,
+            created_at: new Date(),
           },
         ],
       };
 
       (pool.query as jest.Mock)
+        .mockResolvedValueOnce(mockInsertResult)
         .mockResolvedValueOnce(mockMarketResult)
-        .mockResolvedValueOnce(mockInsertResult);
+        .mockResolvedValueOnce(mockUpdateResult);
 
       (StellarService.invokeContract as jest.Mock).mockResolvedValue(mockTxHash);
 
@@ -68,7 +95,26 @@ describe('OracleService', () => {
     });
 
     it('should throw error if market not found', async () => {
-      (pool.query as jest.Mock).mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      const mockInsertResult = {
+        rowCount: 1,
+        rows: [
+          {
+            id: 1,
+            match_id: mockMatchId,
+            oracle_address: mockOracleAddress,
+            outcome: mockOutcome,
+            reported_at: new Date(),
+            signature: 'sig-123',
+            accepted: false,
+            tx_hash: null,
+            created_at: new Date(),
+          },
+        ],
+      };
+
+      (pool.query as jest.Mock)
+        .mockResolvedValueOnce(mockInsertResult)
+        .mockResolvedValueOnce({ rowCount: 0, rows: [] });
 
       await expect(OracleService.submitFightResult(mockMatchId, mockOutcome)).rejects.toThrow(
         'Market not found',
@@ -92,8 +138,12 @@ describe('OracleService', () => {
       const tsBuf = Buffer.alloc(8);
       tsBuf.writeBigInt64BE(BigInt(reportedAt.getTime()));
 
+      const matchIdBytes = Buffer.from(mockMatchId, 'utf8');
+      const xdrLen = Buffer.alloc(4);
+      xdrLen.writeUInt32BE(matchIdBytes.length, 0);
       const message = Buffer.concat([
-        Buffer.from(mockMatchId, 'utf8'),
+        xdrLen,
+        matchIdBytes,
         Buffer.from([outcomeIndex]),
         tsBuf,
       ]);
@@ -141,9 +191,12 @@ describe('OracleService', () => {
       const reportedAt = new Date();
       const tsBuf = Buffer.alloc(8);
       tsBuf.writeBigInt64BE(BigInt(reportedAt.getTime()));
-
+      const matchIdBytes = Buffer.from(mockMatchId, 'utf8');
+      const xdrLen = Buffer.alloc(4);
+      xdrLen.writeUInt32BE(matchIdBytes.length, 0);
       const message = Buffer.concat([
-        Buffer.from(mockMatchId, 'utf8'),
+        xdrLen,
+        matchIdBytes,
         Buffer.from([outcomeIndex]),
         tsBuf,
       ]);
@@ -204,7 +257,7 @@ describe('OracleService', () => {
       expect(result).toBe(mockTxHash);
       expect(StellarService.invokeContract).toHaveBeenCalledWith(
         'contract-123',
-        'raise_dispute',
+        'dispute_market',
         expect.any(Array),
       );
     });
@@ -219,31 +272,59 @@ describe('OracleService', () => {
   });
 
   describe('pollFightResults', () => {
+    beforeEach(() => {
+      process.env.BOXING_API_URL = 'http://mock-boxing-api';
+      process.env.BOXING_API_KEY = 'mock-key';
+    });
+
+    afterEach(() => {
+      delete process.env.BOXING_API_URL;
+      delete process.env.BOXING_API_KEY;
+    });
+
     it('should process locked markets and submit results', async () => {
       const mockMarkets = {
         rowCount: 1,
         rows: [{ market_id: 'market-123', match_id: mockMatchId }],
       };
+      const mockInsertResult = {
+        rowCount: 1,
+        rows: [{ id: 1, match_id: mockMatchId, oracle_address: mockOracleAddress, outcome: mockOutcome, reported_at: new Date(), signature: 'sig-123', accepted: false, tx_hash: null, created_at: new Date() }],
+      };
+      const mockSelectResult = {
+        rowCount: 1,
+        rows: [{ contract_address: 'contract-123' }],
+      };
+      const mockUpdateResult = {
+        rowCount: 1,
+        rows: [{ id: 1, match_id: mockMatchId, accepted: true, tx_hash: mockTxHash }],
+      };
 
-      (pool.query as jest.Mock).mockResolvedValueOnce(mockMarkets);
+      // Mock pool.query for markets query, then insert, select, update
+      (pool.query as jest.Mock)
+        .mockResolvedValueOnce(mockMarkets)
+        .mockResolvedValueOnce(mockInsertResult)
+        .mockResolvedValueOnce(mockSelectResult)
+        .mockResolvedValueOnce(mockUpdateResult);
 
-      jest.spyOn(OracleService, 'fetchPrimaryResult').mockResolvedValue(mockOutcome);
-      jest.spyOn(OracleService, 'submitFightResult').mockResolvedValue({
-        id: 1,
-        match_id: mockMatchId,
-        oracle_address: mockOracleAddress,
-        outcome: mockOutcome,
-        reported_at: new Date(),
-        signature: 'sig-123',
-        accepted: true,
-        tx_hash: mockTxHash,
-        created_at: new Date(),
+      (StellarService.invokeContract as jest.Mock).mockResolvedValue(mockTxHash);
+
+      // Mock fetch to return a confirmed fight result
+      mockFetch.mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          fights: [
+            { fight_id: mockMatchId, status: 'confirmed', result: mockOutcome },
+          ],
+        }),
       });
 
-      await OracleService.pollFightResults();
+      const result = await OracleService.pollFightResults();
 
-      expect(OracleService.fetchPrimaryResult).toHaveBeenCalledWith(mockMatchId);
-      expect(OracleService.submitFightResult).toHaveBeenCalledWith(mockMatchId, mockOutcome);
+      expect(mockFetch).toHaveBeenCalled();
+      expect(result.resolved).toBe(1);
+      expect(result.failed).toBe(0);
     });
 
     it('should skip markets with no confirmed result', async () => {
@@ -254,11 +335,20 @@ describe('OracleService', () => {
 
       (pool.query as jest.Mock).mockResolvedValueOnce(mockMarkets);
 
-      jest.spyOn(OracleService, 'fetchPrimaryResult').mockResolvedValue(null);
+      // Mock fetch to return a pending (unconfirmed) fight
+      mockFetch.mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          fights: [
+            { fight_id: mockMatchId, status: 'pending' },
+          ],
+        }),
+      });
 
       await OracleService.pollFightResults();
 
-      expect(OracleService.fetchPrimaryResult).toHaveBeenCalledWith(mockMatchId);
+      expect(mockFetch).toHaveBeenCalled();
     });
 
     it('should handle API failures gracefully', async () => {
@@ -269,9 +359,8 @@ describe('OracleService', () => {
 
       (pool.query as jest.Mock).mockResolvedValueOnce(mockMarkets);
 
-      jest
-        .spyOn(OracleService, 'fetchPrimaryResult')
-        .mockRejectedValue(new Error('API error'));
+      // Mock fetch to throw (simulate API down)
+      mockFetch.mockRejectedValue(new Error('API error'));
 
       // Should not throw
       await expect(OracleService.pollFightResults()).resolves.not.toThrow();

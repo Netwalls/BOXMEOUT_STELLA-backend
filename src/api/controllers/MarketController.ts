@@ -9,6 +9,7 @@ import { StrKey } from '@stellar/stellar-sdk';
 import { AppError } from '../../utils/AppError';
 import { validateQuery } from '../middleware/validate';
 import * as MarketService from '../../services/MarketService';
+import * as OracleService from '../../oracle/OracleService';
 
 // ---------------------------------------------------------------------------
 // Issue #18 — listMarkets
@@ -204,6 +205,56 @@ export async function getPlatformStats(req: Request, res: Response, next: NextFu
   try {
     const stats = await MarketService.getPlatformStats();
     res.status(200).json(stats);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Issue #745 — resolveMarket (admin)
+// ---------------------------------------------------------------------------
+
+const VALID_OUTCOMES = ['fighter_a', 'fighter_b', 'draw', 'no_contest'] as const;
+
+const resolveMarketBodySchema = z.object({
+  winning_outcome: z.enum(VALID_OUTCOMES, {
+    errorMap: () => ({ message: `winning_outcome must be one of: ${VALID_OUTCOMES.join(', ')}` }),
+  }),
+});
+
+/**
+ * POST /api/markets/:market_id/resolve
+ * Protected by requireAdminJwt middleware.
+ *
+ * Resolves a market with the given winning_outcome.
+ * Returns 409 if market is already resolved.
+ * Returns 200 with updated market on success.
+ */
+export async function resolveMarket(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { market_id } = req.params;
+
+    const parsed = resolveMarketBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const errors = parsed.error.issues.map((e) => ({ field: e.path.join('.'), message: e.message }));
+      res.status(400).json({ errors });
+      return;
+    }
+
+    const { winning_outcome } = parsed.data;
+
+    const market = await MarketService.db().findMarketById(market_id);
+    if (!market) throw AppError.notFound(`Market not found: ${market_id}`);
+
+    if (market.status === 'resolved') {
+      res.status(409).json({ error: 'Market is already resolved' });
+      return;
+    }
+
+    await OracleService.submitFightResult(market.match_id, winning_outcome);
+
+    const updated = await MarketService.db().findMarketById(market_id);
+    res.status(200).json(updated);
   } catch (err) {
     next(err);
   }

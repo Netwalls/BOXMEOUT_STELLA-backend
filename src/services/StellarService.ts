@@ -4,7 +4,7 @@
 // Contributors: implement every function marked TODO.
 // ============================================================
 
-import { Account, Keypair, Networks, Operation, Server, SorobanServer, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
+import { Account, Keypair, Networks, Operation, rpc, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
 
 /**
  * Builds, simulates, signs, and submits a Soroban contract invocation.
@@ -35,13 +35,15 @@ export async function invokeContract(
     : Networks.TESTNET;
 
   if (!source_keypair) {
-    source_keypair = Keypair.random();
+    const oracleSecret = process.env.ORACLE_PRIVATE_KEY;
+    if (!oracleSecret) throw new Error('ORACLE_PRIVATE_KEY env var is required');
+    source_keypair = Keypair.fromSecret(oracleSecret);
   }
 
-  const server = new Server(horizonUrl);
-  const sorobanServer = new SorobanServer(rpcUrl);
+  const server = new rpc.Server(horizonUrl);
+  const sorobanServer = new rpc.Server(rpcUrl);
 
-  const sourceAccount = await server.loadAccount(source_keypair.publicKey());
+  const sourceAccount = await server.getAccount(source_keypair.publicKey());
 
   const invokeContractHostFunction = xdr.HostFunction.hostFunctionTypeInvokeContract(
     new xdr.InvokeContractArgs({
@@ -52,7 +54,6 @@ export async function invokeContract(
   );
 
   const baseFee = 100; // Base fee in stroops
-
   let attempts = 0;
   const maxRetries = 3;
 
@@ -60,7 +61,7 @@ export async function invokeContract(
     try {
       // Step 1-2: Build transaction
       const transaction = new TransactionBuilder(sourceAccount, {
-        fee: baseFee.toString(),
+        fee: (baseFee * Math.pow(2, attempts)).toString(),
         networkPassphrase,
       })
         .addOperation(Operation.invokeHostFunction({ hostFunction: invokeContractHostFunction, auth: [] }))
@@ -73,12 +74,12 @@ export async function invokeContract(
         throw new Error(`Simulation error: ${JSON.stringify(simulation.error)}`);
       }
 
-      const simResult = simulation as { results?: { events?: unknown[]; footprint?: unknown; auth?: unknown[]; minResourceFee?: string }[] };
+      const simResult = simulation as { results?: Array<{ minResourceFee?: string }> };
       const minResourceFee = simResult.results?.[0]?.minResourceFee;
       const resourceFee = minResourceFee ? parseInt(minResourceFee, 10) : 0;
 
       // Step 4: Set total fee
-      const totalFee = baseFee + resourceFee;
+      const totalFee = (baseFee * Math.pow(2, attempts)) + resourceFee;
       transaction.fee = totalFee.toString();
 
       // Step 5: Sign
@@ -93,9 +94,9 @@ export async function invokeContract(
 
       const txHash = submitResponse.hash;
 
-      // Step 7: Poll for result
+      // Step 7: Poll for result (max 30s)
       const startTime = Date.now();
-      const maxWait = 30_000; // 30 seconds
+      const maxWait = 30_000;
 
       while (Date.now() - startTime < maxWait) {
         const statusResponse = await sorobanServer.getTransaction(txHash);
@@ -106,11 +107,10 @@ export async function invokeContract(
           throw new Error(`Transaction failed: ${JSON.stringify(statusResponse.resultXdr)}`);
         }
 
-        // Wait 2 seconds before polling again
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
-      // Timeout
+      // Step 8: Timeout — retry with bumped fee
       throw new Error('Transaction polling timed out');
 
     } catch (err) {
@@ -118,11 +118,6 @@ export async function invokeContract(
       if (attempts >= maxRetries) {
         throw err;
       }
-
-      // On timeout, bump fee and retry
-      // For simplicity, double the base fee
-      // In practice, you might analyze the error
-      console.log(`Attempt ${attempts} failed, retrying with higher fee`);
     }
   }
 
@@ -153,7 +148,7 @@ export async function readContractState<T>(
     ? Networks.PUBLIC
     : Networks.TESTNET;
 
-  const sorobanServer = new SorobanServer(rpcUrl);
+  const sorobanServer = new rpc.Server(rpcUrl);
   const sourceAccount = new Account(Keypair.random().publicKey(), '0');
 
   const invokeContractHostFunction = xdr.HostFunction.hostFunctionTypeInvokeContract(
@@ -165,7 +160,7 @@ export async function readContractState<T>(
   );
 
   const transaction = new TransactionBuilder(sourceAccount, {
-    fee: 100,
+    fee: '100',
     networkPassphrase,
   })
     .addOperation(Operation.invokeHostFunction({ hostFunction: invokeContractHostFunction, auth: [] }))

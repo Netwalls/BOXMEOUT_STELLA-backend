@@ -370,6 +370,49 @@ export async function getBetsByAddress(bettor_address: string): Promise<Bet[]> {
   } as Bet));
 }
 
+export interface BettorStats {
+  total_wagered_xlm: number;
+  total_winnings_xlm: number;
+  total_bets: number;
+  win_rate: number;
+  favorite_fighter: string | null;
+}
+
+/**
+ * Returns aggregate bettor statistics for a Stellar address.
+ * Cached for 60 seconds per address.
+ * Returns zeroed stats (not 404) for addresses with no bets.
+ */
+export async function getBettorStats(bettor_address: string): Promise<BettorStats> {
+  const cacheKey = `bettor:${bettor_address}:stats`;
+  const cached = await cacheGet<BettorStats>(cacheKey);
+  if (cached) return cached;
+
+  const bets = await getBetsByAddress(bettor_address);
+
+  if (bets.length === 0) {
+    const empty: BettorStats = { total_wagered_xlm: 0, total_winnings_xlm: 0, total_bets: 0, win_rate: 0, favorite_fighter: null };
+    await cacheSet(cacheKey, empty, 60);
+    return empty;
+  }
+
+  const total_wagered_xlm = bets.reduce((s, b) => s + Number(b.amount) / 10_000_000, 0);
+  const won_bets = bets.filter(b => b.claimed && b.payout);
+  const total_winnings_xlm = won_bets.reduce((s, b) => s + Number(b.payout) / 10_000_000, 0);
+  const win_rate = bets.length > 0 ? won_bets.length / bets.length : 0;
+
+  // Compute favoriteFighter as the fighter bet on most often
+  const sideCounts: Record<string, number> = {};
+  for (const bet of bets) {
+    sideCounts[bet.side] = (sideCounts[bet.side] ?? 0) + 1;
+  }
+  const favorite_fighter = Object.entries(sideCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  const stats: BettorStats = { total_wagered_xlm, total_winnings_xlm, total_bets: bets.length, win_rate, favorite_fighter };
+  await cacheSet(cacheKey, stats, 60);
+  return stats;
+}
+
 /**
  * Returns aggregate platform statistics for the home page banner.
  * Queries: COUNT(*) WHERE status='Open', SUM(total_pool), COUNT(bets)

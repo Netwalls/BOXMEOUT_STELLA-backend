@@ -34,6 +34,32 @@ export async function getBetsByAddress(
 }
 
 /**
+ * GET /api/bets/:bettor_address/stats
+ *
+ * Returns aggregate stats for a Stellar address:
+ * total_wagered_xlm, total_winnings_xlm, total_bets, win_rate, favorite_fighter.
+ * Cached 60s. Returns zeroed stats (not 404) for addresses with no bets.
+ */
+export async function getBettorStats(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { bettor_address } = req.params;
+
+    if (!StrKey.isValidEd25519PublicKey(bettor_address)) {
+      throw new AppError(400, 'Invalid Stellar address format');
+    }
+
+    const stats = await MarketService.getBettorStats(bettor_address);
+    res.status(200).json(stats);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /api/portfolio/:address
  *
  * Returns a full portfolio summary for a Stellar address:

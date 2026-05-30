@@ -286,6 +286,15 @@ export function getOraclePublicKey(): string {
 }
 
 /**
+ * Runs the auto-resolution job: polls fight results for all locked markets.
+ * Called by the cron scheduler every 10 minutes.
+ * Exported so the cron module can import it directly.
+ */
+export async function runAutoResolutionJob(): Promise<void> {
+  await pollFightResults();
+}
+
+/**
  * Queries a secondary boxing data source (fallback oracle) for a fight result.
  * Used when the primary source is unavailable or returns conflicting data.
  * Returns the outcome string if found, null if the result is not yet available.

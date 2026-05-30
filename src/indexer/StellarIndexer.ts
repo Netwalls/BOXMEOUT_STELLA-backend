@@ -10,7 +10,7 @@
 // ============================================================
 
 import { pool } from '../config/db';
-import { rpc } from '@stellar/stellar-sdk';
+import { rpc, Address, xdr } from '@stellar/stellar-sdk';
 import { subscribeToContractEvents, fetchHistoricalEvents } from '../services/StellarService';
 
 // Raw event shape returned by Stellar RPC / Horizon
@@ -489,10 +489,38 @@ export async function handleMarketResolved(event: RawStellarEvent): Promise<void
 
 export async function handleMarketCancelled(event: RawStellarEvent): Promise<void> {
   const p = parsePayload(event.data);
-  await pool.query(
-    `UPDATE markets SET status = 'cancelled', updated_at = NOW() WHERE market_id = $1`,
-    [p.market_id],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Update market status
+    await client.query(
+      `UPDATE markets SET status = 'cancelled', updated_at = NOW() WHERE market_id = $1`,
+      [p.market_id],
+    );
+
+    // Get all unique bettors for this market
+    const { rows: bettors } = await client.query(
+      `SELECT DISTINCT bettor_address FROM bets WHERE market_id = $1`,
+      [p.market_id]
+    );
+
+    // Enqueue notification job for each bettor
+    for (const bettor of bettors) {
+      await client.query(
+        `INSERT INTO notification_jobs (bettor_address, market_id, job_type, status, created_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [bettor.bettor_address, p.market_id, 'market_cancelled', 'pending']
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function handleWinningsClaimed(event: RawStellarEvent): Promise<void> {

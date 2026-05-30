@@ -302,3 +302,83 @@ export async function claimRefund(
 
   return tx_hash;
 }
+
+/**
+ * Processes refunds for ALL unclaimed bettors in a cancelled market.
+ *
+ * Steps:
+ *   1. Validate market is cancelled
+ *   2. Find all bettors with unclaimed bets
+ *   3. For each bettor, enqueue a notification job
+ *   4. Attempt to submit claim_refund on-chain for each bettor
+ *      (may fail with AUTH_ERROR since server can't sign for the bettor;
+ *       the bettor must claim individually via POST /api/claims/refund)
+ *
+ * Returns a summary of results.
+ */
+export async function processMarketRefunds(
+  market_id: string,
+  token_address: string,
+): Promise<{ total: number; notified: number; submitted: number; failed: number }> {
+  const result = { total: 0, notified: 0, submitted: 0, failed: 0 };
+
+  // Validate market exists and is cancelled
+  const marketResult = await pool.query(
+    'SELECT contract_address, status FROM markets WHERE market_id = $1',
+    [market_id],
+  );
+  if (marketResult.rowCount === 0) {
+    throw AppError.notFound(`Market not found: ${market_id}`);
+  }
+  const { contract_address, status } = marketResult.rows[0];
+  if (status !== 'cancelled') {
+    throw AppError.badRequest(`Market ${market_id} is not cancelled (status: ${status})`);
+  }
+
+  // Get all unique unclaimed bettors
+  const { rows: bettors } = await pool.query(
+    `SELECT DISTINCT bettor_address FROM bets WHERE market_id = $1 AND claimed = FALSE`,
+    [market_id],
+  );
+
+  result.total = bettors.length;
+  if (result.total === 0) return result;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const row of bettors) {
+      const bettor_address = row.bettor_address;
+
+      // Enqueue notification
+      await client.query(
+        `INSERT INTO notification_jobs (bettor_address, market_id, job_type, status, created_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [bettor_address, market_id, 'refund_available', 'pending'],
+      );
+      result.notified++;
+
+      // Attempt on-chain refund (server signs with oracle keypair)
+      try {
+        const bettorScVal = Address.fromString(bettor_address).toScVal();
+        const tokenScVal = Address.fromString(token_address).toScVal();
+        await invokeContract(contract_address, 'claim_refund', [bettorScVal, tokenScVal]);
+        result.submitted++;
+      } catch {
+        // Expected — claim_refund requires bettor.require_auth();
+        // bettor must claim individually via their own wallet.
+        result.failed++;
+      }
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return result;
+}

@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 import { Keypair, Address, xdr } from '@stellar/stellar-sdk';
 import { AppError } from '../../utils/AppError';
 import * as StellarService from '../../services/StellarService';
+import * as BetService from '../../services/BetService';
 import * as OracleService from '../../oracle/OracleService';
 import { verifyToken } from '../../services/totp.service';
 import { db } from '../../services/MarketService';
@@ -233,4 +234,32 @@ export async function listDisputes(
   );
 
   res.status(200).json(result.rows);
+}
+
+/**
+ * POST /api/admin/cancel/:market_id/refunds
+ * Body: { token_address: string }
+ *
+ * Processes refunds for ALL unclaimed bettors in a cancelled market.
+ * Enqueues notification jobs and attempts on-chain claim_refund for each bettor.
+ *
+ * Steps:
+ *   1. Require admin JWT (middleware)
+ *   2. Validate market is cancelled
+ *   3. Call BetService.processMarketRefunds(market_id, token_address)
+ *   4. Return summary of results
+ */
+export async function processRefunds(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { market_id } = req.params;
+  const { token_address } = req.body;
+
+  if (!token_address || typeof token_address !== 'string') {
+    throw new AppError(400, 'token_address is required');
+  }
+
+  const result = await BetService.processMarketRefunds(market_id, token_address);
+  res.status(200).json(result);
 }

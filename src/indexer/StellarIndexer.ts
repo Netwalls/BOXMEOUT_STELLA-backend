@@ -10,14 +10,14 @@
 // ============================================================
 
 import { pool } from '../config/db';
-import { rpc } from '@stellar/stellar-sdk';
+import { rpc, Address, xdr } from '@stellar/stellar-sdk';
 
 // Raw event shape returned by Stellar RPC / Horizon
 export interface RawStellarEvent {
   contract_address: string;
   event_type: string;
   topics: string[];
-  data: string; // XDR-encoded event data
+  data: string; // JSON-encoded flat event payload
   ledger_sequence: number;
   ledger_close_time: string;
   tx_hash: string;
@@ -58,6 +58,154 @@ export async function startIndexer(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ScVal helpers
+// ---------------------------------------------------------------------------
+
+/** Safely extract a string value from an xdr.ScVal. */
+function scvToString(scv: xdr.ScVal): string {
+  const s = scv as any;
+  const arm: string = s.arm();
+  switch (arm) {
+    case 'sym':   return s.sym().toString();
+    case 'str':   return s.str().toString();
+    case 'u32':
+    case 'i32':
+    case 'u64':
+    case 'i64':
+    case 'b':     return String(s[arm]());
+    case 'address': return Address.fromScVal(scv).toString();
+    case 'void':  return '';
+    default: {
+      if (arm === 'i128' || arm === 'u128') {
+        const parts = s[arm]();
+        const hi = BigInt(parts._attributes?._value ?? 0);
+        const lo = BigInt(parts._maxDepth?._value ?? 0);
+        const signedHi = arm === 'i128' && hi >= 2n ** 63n ? hi - 2n ** 64n : hi;
+        return ((signedHi << 64n) + lo).toString();
+      }
+      const val = s[arm]?.();
+      return val != null ? String(val) : scv.toString();
+    }
+  }
+}
+
+/** Recursively convert an xdr.ScVal to a plain JS value. */
+function scvToNative(scv: xdr.ScVal): unknown {
+  const s = scv as any;
+  const arm: string = s.arm();
+  switch (arm) {
+    case 'sym':   return s.sym().toString();
+    case 'str':   return s.str().toString();
+    case 'b':     return s.b();
+    case 'u32':   return s.u32();
+    case 'i32':   return s.i32();
+    case 'u64':   return String(s.u64());
+    case 'i64':   return String(s.i64());
+    case 'address': return Address.fromScVal(scv).toString();
+    case 'void':  return null;
+    case 'vec':   return s.vec().map(scvToNative);
+    case 'map': {
+      const result: Record<string, unknown> = {};
+      s.map().forEach((entry: any) => {
+        result[String(scvToNative(entry.key()))] = scvToNative(entry.val());
+      });
+      return result;
+    }
+    case 'i128':
+    case 'u128': {
+      const parts = s[arm]();
+      const hi = BigInt(parts._attributes?._value ?? 0);
+      const lo = BigInt(parts._maxDepth?._value ?? 0);
+      const signedHi = arm === 'i128' && hi >= 2n ** 63n ? hi - 2n ** 64n : hi;
+      return ((signedHi << 64n) + lo).toString();
+    }
+    default:      return scv.toString();
+  }
+}
+
+/**
+ * Map of Soroban event type (snake_case) → flat JSON field selectors.
+ *
+ * Each entry lists the fields expected by the handler and how to extract them
+ * from the ScVal topics/value. The selectors use dot‑separated paths:
+ *   "topic.1"       → topic at index 1 (market_id)
+ *   "data.0"        → data array at index 0 (first field of the tuple/struct)
+ *   "data.to_string" → data as a plain string (not an array)
+ */
+const EVENT_FIELD_MAP: Record<string, Array<[string, string]>> = {
+  market_created: [
+    ['market_id',       'topic.1'],
+    ['contract_address','data.0'],
+    ['match_id',        'data.1'],
+  ],
+  market_locked: [
+    ['market_id', 'topic.1'],
+  ],
+  market_resolved: [
+    ['market_id',     'topic.1'],
+    ['outcome',       'data.0'],
+    ['oracle_address','data.1'],
+  ],
+  bet_placed: [
+    ['market_id',       'topic.1'],
+    ['bettor_address',  'data.0'],
+    ['side',            'data.2'],
+    ['amount',          'data.3'],
+    ['placed_at',       'data.4'],
+    ['claimed',         'data.5'],
+  ],
+  winnings_claimed: [
+    ['market_id',      'topic.1'],
+    ['bettor_address', 'data.0'],
+    ['payout',         'data.2'],
+  ],
+  refund_claimed: [
+    ['market_id',       'topic.1'],
+    ['bettor_address',  'data.0'],
+    ['refund_amount',   'data.1'],
+  ],
+  market_cancelled: [
+    ['market_id', 'topic.1'],
+  ],
+};
+
+/**
+ * Build a flat JSON record from ScVal topics and value for a given event type.
+ *
+ * The returned record is then JSON.stringify'd into RawStellarEvent.data
+ * so that existing handlers (which call parsePayload) can read by field name.
+ */
+function buildEventPayload(
+  eventType: string,
+  topics: xdr.ScVal[],
+  value: xdr.ScVal,
+): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  const fields = EVENT_FIELD_MAP[eventType];
+  if (!fields) return record; // unknown event → empty record
+
+  // Decode the data value (mostly a Vec or single value)
+  const nativeData = scvToNative(value) as unknown[] | string | null;
+
+  for (const [fieldName, selector] of fields) {
+    if (selector === 'topic.1') {
+      record[fieldName] = topics[1] ? scvToString(topics[1]) : '';
+    } else if (selector.startsWith('data.')) {
+      const idx = parseInt(selector.slice(5), 10);
+      record[fieldName] = Array.isArray(nativeData) ? String(nativeData[idx] ?? '') : '';
+    } else if (selector === 'data.to_string') {
+      record[fieldName] = typeof nativeData === 'string' ? nativeData : String(nativeData ?? '');
+    }
+  }
+
+  return record;
+}
+
+// ---------------------------------------------------------------------------
+// Ledger processing
+// ---------------------------------------------------------------------------
+
 export async function processLedger(ledger_sequence: number): Promise<void> {
   try {
     const request: rpc.Api.GetEventsRequest = {
@@ -81,11 +229,18 @@ export async function processLedger(ledger_sequence: number): Promise<void> {
     for (const event of response.events) {
       const contractId = typeof event.contractId === 'string' ? event.contractId : event.contractId?.toString() || '';
 
+      // Properly extract event type from ScVal Symbol topic
+      const eventType = (event.topic[0] as any)?.sym()?.toString() || 'unknown';
+
+      // Build a flat JSON record from ScVal topics + value
+      const payload = buildEventPayload(eventType, event.topic, event.value);
+      const data = JSON.stringify(payload);
+
       const rawEvent: RawStellarEvent = {
         contract_address: contractId,
-        event_type: event.topic[0]?.toString() || 'unknown',
-        topics: event.topic.map(t => t.toString()),
-        data: JSON.stringify(event.value),
+        event_type: eventType,
+        topics: event.topic.map((t: any) => scvToString(t)),
+        data,
         ledger_sequence: event.ledger,
         ledger_close_time: event.ledgerClosedAt,
         tx_hash: event.txHash
@@ -124,18 +279,20 @@ export async function processEvent(event: RawStellarEvent): Promise<void> {
   try {
     const eventType = event.event_type;
 
-    if (eventType === 'MarketCreated') {
+    if (eventType === 'market_created') {
       await handleMarketCreated(event);
-    } else if (eventType === 'BetPlaced') {
+    } else if (eventType === 'bet_placed') {
       await handleBetPlaced(event);
-    } else if (eventType === 'MarketLocked') {
+    } else if (eventType === 'market_locked') {
       await handleMarketLocked(event);
-    } else if (eventType === 'MarketResolved') {
+    } else if (eventType === 'market_resolved') {
       await handleMarketResolved(event);
-    } else if (eventType === 'MarketCancelled') {
+    } else if (eventType === 'market_cancelled') {
       await handleMarketCancelled(event);
-    } else if (eventType === 'WinningsClaimed') {
+    } else if (eventType === 'winnings_claimed') {
       await handleWinningsClaimed(event);
+    } else if (eventType === 'refund_claimed') {
+      await handleRefundClaimed(event);
     }
   } catch (err) {
     console.error(`Error processing event ${event.tx_hash}:`, err);
@@ -279,6 +436,16 @@ export async function handleWinningsClaimed(event: RawStellarEvent): Promise<voi
         SET claimed = TRUE, claimed_at = NOW(), payout = $1
       WHERE market_id = $2 AND bettor_address = $3`,
     [p.payout ?? null, p.market_id, p.bettor_address],
+  );
+}
+
+export async function handleRefundClaimed(event: RawStellarEvent): Promise<void> {
+  const p = parsePayload(event.data);
+  await pool.query(
+    `UPDATE bets
+        SET claimed = TRUE, claimed_at = NOW(), payout = $1
+      WHERE market_id = $2 AND bettor_address = $3`,
+    [p.refund_amount ?? null, p.market_id, p.bettor_address],
   );
 }
 

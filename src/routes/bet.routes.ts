@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { getBetsByAddress } from '../api/controllers/BetController';
+import { claimWinnings, claimRefund } from '../api/controllers/BetController';
 
 const router = Router();
 
-router.get('/:bettor_address', getBetsByAddress);
+router.post('/', claimWinnings);
+router.post('/refund', claimRefund);
 
 export default router;

@@ -7,6 +7,8 @@ import type { Bet } from '../models/Bet';
 import { pool } from '../config/db';
 import { cacheDelete, cacheDeletePattern } from './cache.service';
 import { AppError } from '../utils/AppError';
+import { Address, xdr } from '@stellar/stellar-sdk';
+import { invokeContract } from './StellarService';
 
 export interface BetWithMarket extends Bet {
   market_id: string;
@@ -225,4 +227,78 @@ export async function calculateProjectedPayout(
     amount: payout.toString(),
     formatted_xlm,
   };
+}
+
+/**
+ * Submits a claim_winnings transaction on-chain for a winning bettor.
+ *
+ * Steps:
+ *   1. Validate inputs
+ *   2. Retrieve market contract address from DB
+ *   3. Build ScVal args: [bettor_address, token_address]
+ *   4. Call StellarService.invokeContract("claim_winnings", args)
+ *   5. Return tx_hash
+ *   6. DB is updated asynchronously by the indexer on WinningsClaimed event
+ */
+export async function claimWinnings(
+  market_id: string,
+  bettor_address: string,
+  token_address: string,
+): Promise<string> {
+  if (!market_id || !bettor_address || !token_address) {
+    throw AppError.badRequest('Missing required claim fields');
+  }
+
+  const marketResult = await pool.query(
+    'SELECT contract_address FROM markets WHERE market_id = $1',
+    [market_id],
+  );
+  if (marketResult.rowCount === 0) {
+    throw AppError.notFound(`Market not found: ${market_id}`);
+  }
+  const contract_address = marketResult.rows[0].contract_address;
+
+  const bettorScVal = Address.fromString(bettor_address).toScVal();
+  const tokenScVal = Address.fromString(token_address).toScVal();
+
+  const tx_hash = await invokeContract(contract_address, 'claim_winnings', [bettorScVal, tokenScVal]);
+
+  return tx_hash;
+}
+
+/**
+ * Submits a claim_refund transaction on-chain for a cancelled market.
+ *
+ * Steps:
+ *   1. Validate inputs
+ *   2. Retrieve market contract address from DB
+ *   3. Build ScVal args: [bettor_address, token_address]
+ *   4. Call StellarService.invokeContract("claim_refund", args)
+ *   5. Return tx_hash
+ *   6. DB is updated asynchronously by the indexer on RefundClaimed event
+ */
+export async function claimRefund(
+  market_id: string,
+  bettor_address: string,
+  token_address: string,
+): Promise<string> {
+  if (!market_id || !bettor_address || !token_address) {
+    throw AppError.badRequest('Missing required refund fields');
+  }
+
+  const marketResult = await pool.query(
+    'SELECT contract_address FROM markets WHERE market_id = $1',
+    [market_id],
+  );
+  if (marketResult.rowCount === 0) {
+    throw AppError.notFound(`Market not found: ${market_id}`);
+  }
+  const contract_address = marketResult.rows[0].contract_address;
+
+  const bettorScVal = Address.fromString(bettor_address).toScVal();
+  const tokenScVal = Address.fromString(token_address).toScVal();
+
+  const tx_hash = await invokeContract(contract_address, 'claim_refund', [bettorScVal, tokenScVal]);
+
+  return tx_hash;
 }

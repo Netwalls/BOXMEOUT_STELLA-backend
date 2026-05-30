@@ -1,51 +1,86 @@
 // ============================================================
 // BOXMEOUT — Bet Controller
+// Claim endpoints for winning bettors.
 // ============================================================
 
 import type { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { StrKey } from '@stellar/stellar-sdk';
-import { AppError } from '../../utils/AppError';
-import * as MarketService from '../../services/MarketService';
+import * as BetService from '../../services/BetService';
+
+const claimBodySchema = z.object({
+  market_id: z.string().min(1, 'market_id is required'),
+  bettor_address: z
+    .string()
+    .refine((v) => StrKey.isValidEd25519PublicKey(v), {
+      message: 'Invalid Stellar address format for bettor_address',
+    }),
+  token_address: z
+    .string()
+    .refine((v) => StrKey.isValidEd25519PublicKey(v), {
+      message: 'Invalid Stellar address format for token_address',
+    }),
+});
 
 /**
- * GET /api/bets/:bettor_address
+ * POST /api/claims
+ * Body: { market_id, bettor_address, token_address }
  *
- * Returns all bets placed by a Stellar G... address across all markets.
- * Validates that bettor_address is a valid Stellar public key (G..., 56 chars).
- * Responds 400 on invalid address format, 200 with Bet[] (empty array if no bets).
+ * Submits a claim_winnings transaction for a winning bettor.
+ * Returns the transaction hash. The DB is updated asynchronously
+ * by the indexer when it picks up the WinningsClaimed event.
  */
-export async function getBetsByAddress(
+export async function claimWinnings(
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { bettor_address } = req.params;
-
-    if (!StrKey.isValidEd25519PublicKey(bettor_address)) {
-      throw new AppError(400, 'Invalid Stellar address format');
+    const parsed = claimBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const errors = parsed.error.issues.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      res.status(400).json({ errors });
+      return;
     }
 
-    const bets = await MarketService.getBetsByAddress(bettor_address);
-    res.status(200).json(bets);
+    const { market_id, bettor_address, token_address } = parsed.data;
+    const tx_hash = await BetService.claimWinnings(market_id, bettor_address, token_address);
+    res.status(200).json({ tx_hash });
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * GET /api/portfolio/:address
+ * POST /api/claims/refund
+ * Body: { market_id, bettor_address, token_address }
  *
- * Returns a full portfolio summary for a Stellar address:
- *   - active_bets, past_bets, pending_claims
- *   - total_staked_xlm, total_won_xlm, total_lost_xlm
- *
- * Responds 400 on invalid address, 200 with Portfolio object.
- * Returns empty portfolio (all zeros, empty arrays) if address has no bets.
+ * Submits a claim_refund transaction for a cancelled market.
+ * Returns the transaction hash.
  */
-export async function getPortfolio(
-  _req: Request,
-  _res: Response,
+export async function claimRefund(
+  req: Request,
+  res: Response,
+  next: NextFunction,
 ): Promise<void> {
-  // TODO: implement
+  try {
+    const parsed = claimBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const errors = parsed.error.issues.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      res.status(400).json({ errors });
+      return;
+    }
+
+    const { market_id, bettor_address, token_address } = parsed.data;
+    const tx_hash = await BetService.claimRefund(market_id, bettor_address, token_address);
+    res.status(200).json({ tx_hash });
+  } catch (err) {
+    next(err);
+  }
 }

@@ -11,6 +11,7 @@ import authRouter from "./routes/auth.routes";
 import marketRouter from "./routes/market.routes";
 import adminRouter from "./routes/admin.routes";
 import { getPortfolio, getBetsByAddress, getPlatformStats } from "./api/controllers/MarketController";
+import claimsRouter from "./routes/bet.routes";
 import { startAutoResolutionCron } from "./cron/autoResolution.cron";
 
 // Validate environment variables on startup
@@ -46,6 +47,7 @@ app.use(
 
 app.use("/auth", authRouter);
 app.use("/api/markets", marketRouter);
+app.use("/api/claims", claimsRouter);
 app.get("/api/stats", getPlatformStats);
 app.get("/api/portfolio/:address", getPortfolio);
 app.get("/api/bets/:bettor_address", getBetsByAddress);

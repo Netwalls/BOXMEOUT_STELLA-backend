@@ -286,7 +286,7 @@ export async function submitFightResult(
     const contract_address = marketResult.rows[0].contract_address;
 
     // Step 4: Call StellarService.invokeContract
-    const tx_hash = await invokeContract(contract_address, 'resolve_market', [] as unknown[]);
+    const tx_hash = await invokeContract(contract_address, 'resolve_market', []);
 
     // Step 5: Update report to applied
     const updateResult = await pool.query(
@@ -421,7 +421,7 @@ export async function adminOverrideResult(
 
   // Invoke resolve_dispute using the correct mapped outcome
   const outcomeIndex = OUTCOME_INDEX[outcome];
-  const tx_hash = await invokeContract(contract_address, 'resolve_dispute', [adminAddress, outcomeIndex] as unknown[]);
+  const tx_hash = await invokeContract(contract_address, 'resolve_dispute', []);
 
   // Record outcome in DB
   await pool.query(
@@ -469,7 +469,7 @@ export async function raiseDispute(
 
   // Invoke raise_dispute on-chain
   const outcomeIndex = OUTCOME_INDEX[outcome];
-  const tx_hash = await invokeContract(contract_address, 'raise_dispute', [adminAddress, outcomeIndex] as unknown[]);
+  const tx_hash = await invokeContract(contract_address, 'raise_dispute', []);
 
   // Record outcome in DB
   await pool.query(

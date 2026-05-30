@@ -4,7 +4,7 @@
 // Contributors: implement every function marked TODO.
 // ============================================================
 
-import { Account, Keypair, Networks, Operation, Server, SorobanServer, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
+import { Account, Keypair, Networks, Operation, rpc, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
 
 /**
  * Builds, simulates, signs, and submits a Soroban contract invocation.
@@ -40,10 +40,10 @@ export async function invokeContract(
     source_keypair = Keypair.fromSecret(oracleSecret);
   }
 
-  const server = new Server(horizonUrl);
-  const sorobanServer = new SorobanServer(rpcUrl);
+  const server = new rpc.Server(horizonUrl);
+  const sorobanServer = new rpc.Server(rpcUrl);
 
-  const sourceAccount = await server.loadAccount(source_keypair.publicKey());
+  const sourceAccount = await server.getAccount(source_keypair.publicKey());
 
   const invokeContractHostFunction = xdr.HostFunction.hostFunctionTypeInvokeContract(
     new xdr.InvokeContractArgs({
@@ -148,7 +148,7 @@ export async function readContractState<T>(
     ? Networks.PUBLIC
     : Networks.TESTNET;
 
-  const sorobanServer = new SorobanServer(rpcUrl);
+  const sorobanServer = new rpc.Server(rpcUrl);
   const sourceAccount = new Account(Keypair.random().publicKey(), '0');
 
   const invokeContractHostFunction = xdr.HostFunction.hostFunctionTypeInvokeContract(
@@ -160,7 +160,7 @@ export async function readContractState<T>(
   );
 
   const transaction = new TransactionBuilder(sourceAccount, {
-    fee: 100,
+    fee: '100',
     networkPassphrase,
   })
     .addOperation(Operation.invokeHostFunction({ hostFunction: invokeContractHostFunction, auth: [] }))

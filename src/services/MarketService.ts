@@ -89,6 +89,11 @@ export interface Portfolio {
   pending_claims: Bet[];
 }
 
+export interface ProjectedPayout {
+  amount: string;
+  formatted_xlm: number;
+}
+
 /**
  * Returns paginated markets from the database.
  *
@@ -510,6 +515,58 @@ export async function getPortfolioByAddress(
     total_won_xlm,
     total_lost_xlm,
     pending_claims,
+  };
+}
+
+/**
+ * Simulates projected payout for a hypothetical bet on a market.
+ *
+ * Parimutuel formula:
+ *   payout = (hypothetical_amount / outcome_pool) * (total_pool - fee)
+ *
+ * Returns zero if the outcome pool is empty or the market is cancelled.
+ */
+export async function simulateProjectedPayout(
+  market_id: string,
+  amount: string,
+  outcome: 'fighter_a' | 'fighter_b' | 'draw',
+): Promise<ProjectedPayout> {
+  const market = await db().findMarketById(market_id);
+  if (!market) throw AppError.notFound(`Market not found: ${market_id}`);
+
+  if (market.status === 'cancelled') {
+    return { amount: '0', formatted_xlm: 0 };
+  }
+
+  const betAmount = BigInt(amount);
+  if (betAmount <= 0n) {
+    return { amount: '0', formatted_xlm: 0 };
+  }
+
+  const total_pool = BigInt(market.total_pool);
+  const fee_bps = market.fee_bps;
+  const fee = (total_pool * BigInt(fee_bps)) / 10000n;
+  const pool_after_fee = total_pool - fee;
+
+  let winning_pool: bigint;
+  if (outcome === 'fighter_a') {
+    winning_pool = BigInt(market.pool_a);
+  } else if (outcome === 'fighter_b') {
+    winning_pool = BigInt(market.pool_b);
+  } else {
+    winning_pool = BigInt(market.pool_draw);
+  }
+
+  if (winning_pool <= 0n) {
+    return { amount: '0', formatted_xlm: 0 };
+  }
+
+  const payout = (betAmount * pool_after_fee) / winning_pool;
+  const formatted_xlm = Number(payout) / 10_000_000;
+
+  return {
+    amount: payout.toString(),
+    formatted_xlm,
   };
 }
 

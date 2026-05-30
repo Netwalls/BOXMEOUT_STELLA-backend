@@ -171,6 +171,43 @@ export async function getMarketOdds(
   }
 }
 
+const simulateQuerySchema = z.object({
+  amount: z.coerce.number().positive({ message: 'amount must be a positive number' }),
+  outcome: z.enum(VALID_OUTCOMES),
+});
+
+/**
+ * GET /api/markets/:market_id/simulate
+ * Query params: amount (stroops, positive number), outcome (fighter_a | fighter_b | draw)
+ *
+ * Returns the projected payout for a hypothetical bet using parimutuel formula.
+ * Responds 200 with { amount, formatted_xlm }.
+ */
+export const simulatePayoutValidation = validateQuery(simulateQuerySchema);
+
+export async function simulatePayout(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { market_id } = req.params;
+    const { amount, outcome } = req.query as unknown as { amount: number; outcome: 'fighter_a' | 'fighter_b' | 'draw' };
+
+    const payout = await MarketService.simulateProjectedPayout(
+      market_id,
+      String(amount),
+      outcome,
+    );
+    res.status(200).json(payout);
+  } catch (err) {
+    if (err instanceof AppError && err.statusCode === 404) {
+      return next(err);
+    }
+    next(err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Issue #22 — getPortfolio
 // ---------------------------------------------------------------------------

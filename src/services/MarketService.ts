@@ -7,7 +7,7 @@
 import type { Market, MarketStats, PlatformStats } from '../models/Market';
 import type { Bet } from '../models/Bet';
 import { pool } from '../config/db';
-import { cacheGet, cacheSet } from './cache.service';
+import { cacheGet, cacheSet, cacheDelete, cacheDeletePattern } from './cache.service';
 import * as StellarService from './StellarService';
 import { AppError } from '../utils/AppError';
 
@@ -38,6 +38,9 @@ export { db };
 export interface MarketFilters {
   status?: string;
   weight_class?: string;
+  fighter?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
 }
 
 export interface Pagination {
@@ -74,11 +77,11 @@ export interface Portfolio {
  * Returns paginated markets from the database.
  *
  * Steps:
- *   1. Build WHERE clause from filters (status, weight_class)
+ *   1. Build WHERE clause from filters (status, weight_class, fighter name, date range)
  *   2. Apply pagination (LIMIT / OFFSET)
  *   3. Check Redis cache — return cached result if fresh (TTL 30s)
  *   4. Query DB if cache miss; store result in cache before returning
- *   5. Sort by scheduled_at ASC by default
+ *   5. Sort by scheduled_at DESC by default
  */
 export async function getMarkets(
   filters?: MarketFilters,
@@ -86,9 +89,12 @@ export async function getMarkets(
 ): Promise<MarketListResult> {
   const statusKey = filters?.status ?? '';
   const weightKey = filters?.weight_class ?? '';
+  const fighterKey = filters?.fighter ?? '';
+  const dateFromKey = filters?.dateFrom?.toISOString() ?? '';
+  const dateToKey = filters?.dateTo?.toISOString() ?? '';
   const page = pagination?.page ?? 1;
   const limit = pagination?.limit ?? 50;
-  const cacheKey = `markets:${statusKey}:${weightKey}:${page}:${limit}`;
+  const cacheKey = `markets:${statusKey}:${weightKey}:${fighterKey}:${dateFromKey}:${dateToKey}:${page}:${limit}`;
   const cached = await cacheGet<MarketListResult>(cacheKey);
   if (cached) return cached;
 
@@ -98,11 +104,20 @@ export async function getMarkets(
     const filtered = markets.filter((market) => {
       if (filters?.status && market.status !== filters.status) return false;
       if (filters?.weight_class && market.weight_class !== filters.weight_class) return false;
+      if (filters?.fighter) {
+        const fighterLower = filters.fighter.toLowerCase();
+        if (!market.fighter_a.toLowerCase().includes(fighterLower) && 
+            !market.fighter_b.toLowerCase().includes(fighterLower)) {
+          return false;
+        }
+      }
+      if (filters?.dateFrom && new Date(market.scheduled_at) < filters.dateFrom) return false;
+      if (filters?.dateTo && new Date(market.scheduled_at) > filters.dateTo) return false;
       return true;
     });
 
     const sorted = [...filtered].sort(
-      (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
+      (a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime(),
     );
 
     const offset = (page - 1) * limit;
@@ -120,12 +135,24 @@ export async function getMarkets(
       values.push(filters.weight_class);
       whereClauses.push(`weight_class = $${values.length}`);
     }
+    if (filters?.fighter) {
+      values.push(`%${filters.fighter}%`);
+      whereClauses.push(`(fighter_a ILIKE $${values.length} OR fighter_b ILIKE $${values.length})`);
+    }
+    if (filters?.dateFrom) {
+      values.push(filters.dateFrom);
+      whereClauses.push(`scheduled_at >= $${values.length}`);
+    }
+    if (filters?.dateTo) {
+      values.push(filters.dateTo);
+      whereClauses.push(`scheduled_at <= $${values.length}`);
+    }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const offset = (page - 1) * limit;
 
     const rows = await pool.query(
-      `SELECT * FROM markets ${whereSql} ORDER BY scheduled_at ASC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      `SELECT * FROM markets ${whereSql} ORDER BY scheduled_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
       [...values, limit, offset],
     );
 
@@ -148,6 +175,16 @@ export async function getMarkets(
 
   await cacheSet(cacheKey, result, 30);
   return result;
+}
+
+/**
+ * Invalidates cache for a market when it's updated.
+ * Clears the market cache and related pattern caches.
+ */
+export async function invalidateMarketCache(market_id: string): Promise<void> {
+  await cacheDelete(`market:${market_id}`);
+  await cacheDeletePattern(`markets:*`);
+  await cacheDelete(`market:${market_id}:stats`);
 }
 
 /**
@@ -348,26 +385,6 @@ export async function getPortfolioByAddress(
     total_lost_xlm,
     pending_claims,
   };
-}
-
-/**
- * Returns all bets placed by a given Stellar address across all markets.
- * Returns an empty array (never 404) when the address has no bets.
- */
-export async function getBetsByAddress(bettor_address: string): Promise<Bet[]> {
-  if (_db) {
-    return db().findBetsByAddress(bettor_address);
-  }
-
-  const { rows } = await pool.query(
-    'SELECT * FROM bets WHERE bettor_address = $1 ORDER BY placed_at DESC',
-    [bettor_address],
-  );
-  return rows.map((row) => ({
-    ...row,
-    placed_at: new Date(row.placed_at),
-    claimed_at: row.claimed_at ? new Date(row.claimed_at) : null,
-  } as Bet));
 }
 
 /**

@@ -9,8 +9,35 @@ import { AppError } from '../../utils/AppError';
 import * as StellarService from '../../services/StellarService';
 import * as BetService from '../../services/BetService';
 import * as OracleService from '../../oracle/OracleService';
-import { db } from '../../services/MarketService';
+import { db, bulkPauseMarkets, bulkCancelMarkets } from '../../services/MarketService';
 import { pool } from '../../config/db';
+
+const MAX_BULK = 50;
+
+export async function bulkPause(req: Request, res: Response): Promise<void> {
+  const { marketIds } = req.body as { marketIds: string[] };
+  if (!Array.isArray(marketIds) || marketIds.length === 0) {
+    throw new AppError(400, 'marketIds must be a non-empty array');
+  }
+  if (marketIds.length > MAX_BULK) {
+    throw new AppError(400, `Maximum ${MAX_BULK} markets per request`);
+  }
+  res.json(await bulkPauseMarkets(marketIds));
+}
+
+export async function bulkCancel(req: Request, res: Response): Promise<void> {
+  const { marketIds, reason } = req.body as { marketIds: string[]; reason: string };
+  if (!Array.isArray(marketIds) || marketIds.length === 0) {
+    throw new AppError(400, 'marketIds must be a non-empty array');
+  }
+  if (marketIds.length > MAX_BULK) {
+    throw new AppError(400, `Maximum ${MAX_BULK} markets per request`);
+  }
+  if (!reason || typeof reason !== 'string') {
+    throw new AppError(400, 'reason is required');
+  }
+  res.json(await bulkCancelMarkets(marketIds, reason));
+}
 
 const VALID_OUTCOMES = ['fighter_a', 'fighter_b', 'draw', 'no_contest'] as const;
 

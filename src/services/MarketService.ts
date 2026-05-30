@@ -620,3 +620,92 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   await cacheSet(cacheKey, stats, 60);
   return stats;
 }
+
+// ---------------------------------------------------------------------------
+// Bulk operations
+// ---------------------------------------------------------------------------
+
+export interface BulkResult {
+  succeeded: string[];
+  failed: { id: string; reason: string }[];
+}
+
+/**
+ * Pauses (locks) up to 50 open markets in a single admin action.
+ * Each market is processed independently — failures do not abort others.
+ */
+export async function bulkPauseMarkets(marketIds: string[]): Promise<BulkResult> {
+  const result: BulkResult = { succeeded: [], failed: [] };
+
+  for (const id of marketIds) {
+    try {
+      const { rows } = await pool.query(
+        `UPDATE markets SET status = 'locked', updated_at = NOW()
+         WHERE market_id = $1 AND status = 'open'
+         RETURNING market_id`,
+        [id],
+      );
+      if (rows.length === 0) {
+        result.failed.push({ id, reason: 'Market not found or not in open status' });
+      } else {
+        await invalidateMarketCache(id);
+        result.succeeded.push(id);
+      }
+    } catch (err) {
+      result.failed.push({ id, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Cancels up to 50 open/locked markets and enqueues notifications for all
+ * position holders of each successfully cancelled market.
+ * Each market is processed independently — failures do not abort others.
+ */
+export async function bulkCancelMarkets(
+  marketIds: string[],
+  reason: string,
+): Promise<BulkResult> {
+  const result: BulkResult = { succeeded: [], failed: [] };
+
+  for (const id of marketIds) {
+    try {
+      const { rows } = await pool.query(
+        `UPDATE markets SET status = 'cancelled', updated_at = NOW()
+         WHERE market_id = $1 AND status IN ('open', 'locked')
+         RETURNING market_id`,
+        [id],
+      );
+      if (rows.length === 0) {
+        result.failed.push({ id, reason: 'Market not found or not cancellable' });
+        continue;
+      }
+
+      await invalidateMarketCache(id);
+
+      // Enqueue notifications for all position holders
+      const bettors = await pool.query(
+        `SELECT DISTINCT bettor_address FROM bets WHERE market_id = $1`,
+        [id],
+      );
+      if (bettors.rows.length > 0) {
+        const values = bettors.rows
+          .map((_: unknown, i: number) => `($${i * 4 + 1}, $${i * 4 + 2}, 'market_cancelled', 'pending', NOW())`)
+          .join(', ');
+        const params = bettors.rows.flatMap((r: { bettor_address: string }) => [r.bettor_address, id]);
+        await pool.query(
+          `INSERT INTO notification_jobs (bettor_address, market_id, job_type, status, created_at) VALUES ${values}`,
+          params,
+        );
+      }
+
+      result.succeeded.push(id);
+    } catch (err) {
+      result.failed.push({ id, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return result;
+}

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AppError } from '../utils/AppError';
-import { flagDispute, investigateDispute, cancelMarket, resolveDispute, listDisputes, processRefunds } from '../api/controllers/AdminController';
+import { flagDispute, investigateDispute, cancelMarket, resolveDispute, listDisputes, processRefunds, bulkPause, bulkCancel } from '../api/controllers/AdminController';
 import {
   logExportAudit,
   streamUsersExport,
@@ -89,6 +89,18 @@ router.post('/cancel/:market_id', requireAdmin, async (req: Request, res: Respon
   } catch (err) {
     next(err);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Bulk market operations
+// ---------------------------------------------------------------------------
+
+router.post('/markets/bulk-pause', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try { await bulkPause(req, res); } catch (err) { next(err); }
+});
+
+router.post('/markets/bulk-cancel', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try { await bulkCancel(req, res); } catch (err) { next(err); }
 });
 
 // ---------------------------------------------------------------------------

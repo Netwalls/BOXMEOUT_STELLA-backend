@@ -92,3 +92,25 @@ export async function sendPasswordResetEmail(
     logger.error({ msg: 'Failed to send password reset email', error: err });
   }
 }
+
+/**
+ * Send an async export-ready email with the CSV as an attachment.
+ */
+export async function sendExportReadyEmail(
+  toEmail: string,
+  exportType: string,
+  csvContent: string,
+): Promise<void> {
+  const filename = `${exportType}-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  try {
+    await transporter.sendMail({
+      from: `"${APP_NAME}" <${FROM_ADDRESS}>`,
+      to: toEmail,
+      subject: `[${APP_NAME}] Your ${exportType} export is ready`,
+      text: `Your requested ${exportType} export is attached as ${filename}.`,
+      attachments: [{ filename, content: csvContent, contentType: 'text/csv' }],
+    });
+  } catch (err) {
+    logger.error({ msg: 'Failed to send export ready email', error: err });
+  }
+}

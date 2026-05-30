@@ -17,6 +17,7 @@ const envSchema = z.object({
   ADMIN_PUBLIC_KEY: z.string().optional(),
   ORACLE_API_KEY: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  ENABLE_SWAGGER: z.coerce.boolean().default(false),
   GENESIS_LEDGER: z.coerce.number().int().positive().default(100000),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   BOXING_API_URL: z.string().url().optional(),

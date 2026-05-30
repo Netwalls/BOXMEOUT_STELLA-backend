@@ -15,6 +15,13 @@ const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-jwt-secret-change-me';
 
+/**
+ * @swagger
+ * tags:
+ *   name: Admin
+ *   description: Admin-only operations
+ */
+
 // ---------------------------------------------------------------------------
 // Admin middleware — verifies JWT and checks admin role
 // ---------------------------------------------------------------------------
@@ -43,6 +50,20 @@ async function requireAdmin(req: Request, _res: Response, next: NextFunction): P
   }
 }
 
+/**
+ * @swagger
+ * /admin/disputes:
+ *   get:
+ *     summary: List all disputes (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of disputes
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/disputes', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await listDisputes(req, res);
@@ -51,6 +72,26 @@ router.get('/disputes', requireAdmin, async (req: Request, res: Response, next: 
   }
 });
 
+/**
+ * @swagger
+ * /admin/dispute/{market_id}:
+ *   post:
+ *     summary: Flag a market dispute (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: market_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Dispute flagged
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/dispute/:market_id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await flagDispute(req, res);
@@ -59,6 +100,26 @@ router.post('/dispute/:market_id', requireAdmin, async (req: Request, res: Respo
   }
 });
 
+/**
+ * @swagger
+ * /admin/dispute/{market_id}/investigate:
+ *   post:
+ *     summary: Mark a dispute as under investigation (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: market_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Dispute under investigation
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/dispute/:market_id/investigate', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await investigateDispute(req, res);
@@ -67,6 +128,26 @@ router.post('/dispute/:market_id/investigate', requireAdmin, async (req: Request
   }
 });
 
+/**
+ * @swagger
+ * /admin/cancel/{market_id}/refunds:
+ *   post:
+ *     summary: Process refunds for a cancelled market (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: market_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Refunds processed
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/cancel/:market_id/refunds', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await processRefunds(req, res);
@@ -75,6 +156,40 @@ router.post('/cancel/:market_id/refunds', requireAdmin, async (req: Request, res
   }
 });
 
+/**
+ * @swagger
+ * /admin/resolve-dispute/{market_id}:
+ *   post:
+ *     summary: Resolve a dispute for a market (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: market_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [action]
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [DISMISS, RESOLVE_NEW_OUTCOME]
+ *               newWinningOutcome:
+ *                 type: integer
+ *                 enum: [0, 1]
+ *     responses:
+ *       200:
+ *         description: Dispute resolved
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/resolve-dispute/:market_id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await resolveDispute(req, res);
@@ -83,6 +198,26 @@ router.post('/resolve-dispute/:market_id', requireAdmin, async (req: Request, re
   }
 });
 
+/**
+ * @swagger
+ * /admin/cancel/{market_id}:
+ *   post:
+ *     summary: Cancel a market (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: market_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Market cancelled
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/cancel/:market_id', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await cancelMarket(req, res);
@@ -91,22 +226,84 @@ router.post('/cancel/:market_id', requireAdmin, async (req: Request, res: Respon
   }
 });
 
-// ---------------------------------------------------------------------------
-// Bulk market operations
-// ---------------------------------------------------------------------------
-
+/**
+ * @swagger
+ * /admin/markets/bulk-pause:
+ *   post:
+ *     summary: Pause multiple markets (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [marketIds]
+ *             properties:
+ *               marketIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Markets paused
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/markets/bulk-pause', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try { await bulkPause(req, res); } catch (err) { next(err); }
 });
 
+/**
+ * @swagger
+ * /admin/markets/bulk-cancel:
+ *   post:
+ *     summary: Cancel multiple markets (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [marketIds]
+ *             properties:
+ *               marketIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Markets cancelled
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/markets/bulk-cancel', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try { await bulkCancel(req, res); } catch (err) { next(err); }
 });
 
-// ---------------------------------------------------------------------------
-// CSV Export routes
-// ---------------------------------------------------------------------------
-
+/**
+ * @swagger
+ * /admin/export/users:
+ *   get:
+ *     summary: Stream users CSV export (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV file stream
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/export/users', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const adminId = (req as unknown as Record<string, unknown>).userId as string;
@@ -117,6 +314,35 @@ router.get('/export/users', requireAdmin, async (req: Request, res: Response, ne
   }
 });
 
+/**
+ * @swagger
+ * /admin/export/trades:
+ *   get:
+ *     summary: Stream trades CSV export (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: to
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: CSV file stream
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/export/trades', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const adminId = (req as unknown as Record<string, unknown>).userId as string;
@@ -128,6 +354,24 @@ router.get('/export/trades', requireAdmin, async (req: Request, res: Response, n
   }
 });
 
+/**
+ * @swagger
+ * /admin/export/treasury:
+ *   get:
+ *     summary: Stream treasury CSV export (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSV file stream
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       401:
+ *         description: Unauthorized
+ */
 router.get('/export/treasury', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const adminId = (req as unknown as Record<string, unknown>).userId as string;
@@ -139,11 +383,40 @@ router.get('/export/treasury', requireAdmin, async (req: Request, res: Response,
 });
 
 /**
- * POST /api/admin/export/request
- * Body: { type: 'trades', from?: string, to?: string, email: string }
- *
- * Kicks off an async export. Builds the CSV in the background and emails
- * it as an attachment when ready.
+ * @swagger
+ * /admin/export/request:
+ *   post:
+ *     summary: Queue an async export and email it when ready (admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [type, email]
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [trades]
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               from:
+ *                 type: string
+ *                 format: date
+ *               to:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       202:
+ *         description: Export queued
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Unauthorized
  */
 router.post('/export/request', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {

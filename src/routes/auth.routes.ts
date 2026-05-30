@@ -10,6 +10,13 @@ const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-jwt-secret-change-me';
 
+/**
+ * @swagger
+ * tags:
+ *   name: Auth
+ *   description: Authentication and 2FA
+ */
+
 // ---------------------------------------------------------------------------
 // Auth middleware — verifies JWT and checks session-revocation tombstone
 // ---------------------------------------------------------------------------
@@ -57,6 +64,42 @@ const verifySchema = z.object({
 // ---------------------------------------------------------------------------
 // POST /auth/login
 // ---------------------------------------------------------------------------
+/**
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: Login with email and password
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Access token (or tempToken if 2FA enabled)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 tempToken:
+ *                   type: string
+ *       400:
+ *         description: Missing credentials
+ *       401:
+ *         description: Invalid credentials
+ */
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, password } = req.body;
@@ -72,6 +115,27 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
 // POST /auth/forgot-password
 // Stricter rate limit: 5 requests per 15 minutes per IP
 // ---------------------------------------------------------------------------
+/**
+ * @swagger
+ * /auth/forgot-password:
+ *   post:
+ *     summary: Request a password reset email
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Reset link sent (always, to avoid email enumeration)
+ */
 router.post(
   '/forgot-password',
   rateLimit({ windowMs: 15 * 60_000, max: 5, keyBy: 'ip' }),
@@ -96,6 +160,31 @@ router.post(
 // POST /auth/reset-password
 // Stricter rate limit: 10 attempts per 15 minutes per IP
 // ---------------------------------------------------------------------------
+/**
+ * @swagger
+ * /auth/reset-password:
+ *   post:
+ *     summary: Reset password using a reset token
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, newPassword]
+ *             properties:
+ *               token:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Password updated
+ *       400:
+ *         description: Invalid or expired token
+ */
 router.post(
   '/reset-password',
   rateLimit({ windowMs: 15 * 60_000, max: 10, keyBy: 'ip' }),
@@ -123,8 +212,31 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// 2FA routes (unchanged, kept here for completeness)
+// 2FA routes
 // ---------------------------------------------------------------------------
+/**
+ * @swagger
+ * /auth/2fa/setup:
+ *   post:
+ *     summary: Generate a TOTP secret and QR code for 2FA setup
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: TOTP secret and QR code URI
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 secret:
+ *                   type: string
+ *                 qrCodeUrl:
+ *                   type: string
+ *       401:
+ *         description: Unauthorized
+ */
 router.post('/2fa/setup', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await authService.setup2FA((req as unknown as Record<string, unknown>).userId as string);
@@ -134,6 +246,30 @@ router.post('/2fa/setup', requireAuth, async (req: Request, res: Response, next:
   }
 });
 
+/**
+ * @swagger
+ * /auth/2fa/enable:
+ *   post:
+ *     summary: Enable 2FA after verifying the TOTP code
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [otp]
+ *             properties:
+ *               otp:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 2FA enabled
+ *       401:
+ *         description: Unauthorized or invalid OTP
+ */
 router.post('/2fa/enable', requireAuth, validateBody(otpSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     await authService.enable2FA((req as unknown as Record<string, unknown>).userId as string, req.body.otp);
@@ -143,6 +279,30 @@ router.post('/2fa/enable', requireAuth, validateBody(otpSchema), async (req: Req
   }
 });
 
+/**
+ * @swagger
+ * /auth/2fa/disable:
+ *   post:
+ *     summary: Disable 2FA
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [otp]
+ *             properties:
+ *               otp:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 2FA disabled
+ *       401:
+ *         description: Unauthorized or invalid OTP
+ */
 router.post('/2fa/disable', requireAuth, validateBody(otpSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     await authService.disable2FA((req as unknown as Record<string, unknown>).userId as string, req.body.otp);
@@ -152,6 +312,30 @@ router.post('/2fa/disable', requireAuth, validateBody(otpSchema), async (req: Re
   }
 });
 
+/**
+ * @swagger
+ * /auth/2fa/verify:
+ *   post:
+ *     summary: Complete login by verifying 2FA OTP
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [tempToken, otp]
+ *             properties:
+ *               tempToken:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Access token issued
+ *       401:
+ *         description: Invalid temp token or OTP
+ */
 router.post('/2fa/verify', validateBody(verifySchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await authService.verify2FA(req.body.tempToken, req.body.otp);

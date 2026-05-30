@@ -29,7 +29,7 @@ app.use(express.json());
 app.use(requestLogging);
 
 // Setup Swagger/OpenAPI documentation
-if (env.NODE_ENV === 'development') {
+if (env.NODE_ENV === 'development' || env.ENABLE_SWAGGER) {
   setupSwagger(app);
 }
 
@@ -96,8 +96,8 @@ app.use(errorMiddleware);
 const PORT = env.PORT;
 app.listen(PORT, () => {
   logger.info(`Server running on port ${PORT}`);
-  if (env.NODE_ENV === 'development') {
-    logger.info(`Swagger UI available at http://localhost:${PORT}/api/docs`);
+  if (env.NODE_ENV === 'development' || env.ENABLE_SWAGGER) {
+    logger.info(`Swagger UI available at http://localhost:${PORT}/docs`);
   }
   startAutoResolutionCron();
   startAutoLockCron();

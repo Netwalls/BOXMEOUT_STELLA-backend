@@ -63,6 +63,22 @@ export interface MarketWithOdds extends Market {
   odds: MarketOdds;
 }
 
+export interface OutcomeOdds {
+  outcome: string;
+  multiplier: number;
+  implied_probability: number;
+  pool: string;
+  total_pool: string;
+}
+
+export interface AllOutcomeOdds {
+  market_id: string;
+  fighter_a: OutcomeOdds;
+  fighter_b: OutcomeOdds;
+  draw: OutcomeOdds;
+  total_pool: string;
+}
+
 export interface Portfolio {
   address: string;
   active_bets: Bet[];
@@ -280,6 +296,85 @@ export async function calculateOdds(market_id: string): Promise<{ fighterA: numb
     fighterA: Math.round(fighterA * 100) / 100,
     fighterB: Math.round(fighterB * 100) / 100,
     draw: Math.round(draw * 100) / 100,
+  };
+}
+
+/** Shared pool loader for odds calculations. */
+async function loadMarketPools(market_id: string) {
+  const market = await db().findMarketById(market_id);
+  if (!market) throw AppError.notFound(`Market not found: ${market_id}`);
+  return {
+    totalPool: BigInt(market.total_pool),
+    poolA: BigInt(market.pool_a),
+    poolB: BigInt(market.pool_b),
+    poolDraw: BigInt(market.pool_draw),
+    feeBps: BigInt(market.fee_bps),
+    totalPoolStr: market.total_pool,
+  };
+}
+
+/** Build an OutcomeOdds from raw pool values. */
+function computeOutcomeOdds(
+  pool: bigint,
+  totalPool: bigint,
+  feeBps: bigint,
+  outcome: string,
+  totalPoolStr: string,
+): OutcomeOdds {
+  if (totalPool === 0n || pool === 0n) {
+    return { outcome, multiplier: 0, implied_probability: 0, pool: pool.toString(), total_pool: totalPoolStr };
+  }
+  const fee = (totalPool * feeBps) / 10000n;
+  const netPool = totalPool - fee;
+  const multiplier = Number((netPool * 10000n) / pool) / 10000;
+  const implied_probability = Number((pool * 10000n) / totalPool) / 100;
+  return {
+    outcome,
+    multiplier: Math.round(multiplier * 100) / 100,
+    implied_probability: Math.round(implied_probability * 100) / 100,
+    pool: pool.toString(),
+    total_pool: totalPoolStr,
+  };
+}
+
+/**
+ * Calculates parimutuel odds for a single specific outcome.
+ *
+ * Parimutuel formula:
+ *   multiplier = (total_pool - fee) / outcome_pool
+ *   implied_probability = outcome_pool / total_pool
+ *
+ * Returns zero multiplier/probability for empty pools.
+ */
+export async function calculateSingleOutcomeOdds(
+  market_id: string,
+  outcome: 'fighter_a' | 'fighter_b' | 'draw',
+): Promise<OutcomeOdds> {
+  const { totalPool, poolA, poolB, poolDraw, feeBps, totalPoolStr } = await loadMarketPools(market_id);
+  const pool = outcome === 'fighter_a' ? poolA : outcome === 'fighter_b' ? poolB : poolDraw;
+  return computeOutcomeOdds(pool, totalPool, feeBps, outcome, totalPoolStr);
+}
+
+/**
+ * Calculates parimutuel odds for all three outcomes.
+ *
+ * Parimutuel formula (per outcome):
+ *   multiplier = (total_pool - fee) / outcome_pool
+ *   implied_probability = outcome_pool / total_pool
+ *
+ * Returns zeros for outcomes with empty pools.
+ */
+export async function calculateOutcomeOdds(
+  market_id: string,
+): Promise<AllOutcomeOdds> {
+  const { totalPool, poolA, poolB, poolDraw, feeBps, totalPoolStr } = await loadMarketPools(market_id);
+
+  return {
+    market_id,
+    fighter_a: computeOutcomeOdds(poolA, totalPool, feeBps, 'fighter_a', totalPoolStr),
+    fighter_b: computeOutcomeOdds(poolB, totalPool, feeBps, 'fighter_b', totalPoolStr),
+    draw: computeOutcomeOdds(poolDraw, totalPool, feeBps, 'draw', totalPoolStr),
+    total_pool: totalPoolStr,
   };
 }
 

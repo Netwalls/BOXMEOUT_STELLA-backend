@@ -5,6 +5,7 @@ import {
     getMarket,
     getMarketBets,
     getMarketBetsValidation,
+    getMarketOdds,
     getMarketStats,
     getPlatformStats,
     resolveMarket,
@@ -18,6 +19,7 @@ router.get('/', listMarketsValidation, listMarkets);
 
 router.get('/:market_id', getMarket);
 router.get('/:market_id/bets', getMarketBetsValidation, getMarketBets);
+router.get('/:market_id/odds', getMarketOdds);
 router.get('/:market_id/stats', getMarketStats);
 
 // Issue #745 — POST /api/markets/:market_id/resolve (admin)

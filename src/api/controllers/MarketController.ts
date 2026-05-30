@@ -132,6 +132,45 @@ export async function getMarketStats(req: Request, res: Response, next: NextFunc
   }
 }
 
+/**
+ * GET /api/markets/:market_id/odds
+ *
+ * Returns parimutuel odds for all three outcomes (fighter_a, fighter_b, draw).
+ * Each outcome includes the multiplier (net payout per unit staked) and
+ * implied probability (as a percentage).
+ * Responds 404 if market not found, 200 with AllOutcomeOdds.
+ */
+const VALID_OUTCOMES = ['fighter_a', 'fighter_b', 'draw'] as const;
+
+export async function getMarketOdds(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { market_id } = req.params;
+    const outcome = req.query.outcome as string | undefined;
+
+    if (outcome && !VALID_OUTCOMES.includes(outcome as typeof VALID_OUTCOMES[number])) {
+      res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(', ')}` });
+      return;
+    }
+
+    if (outcome) {
+      const odds = await MarketService.calculateSingleOutcomeOdds(market_id, outcome as 'fighter_a' | 'fighter_b' | 'draw');
+      res.status(200).json(odds);
+    } else {
+      const odds = await MarketService.calculateOutcomeOdds(market_id);
+      res.status(200).json(odds);
+    }
+  } catch (err) {
+    if (err instanceof AppError && err.statusCode === 404) {
+      return next(err);
+    }
+    next(err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Issue #22 — getPortfolio
 // ---------------------------------------------------------------------------

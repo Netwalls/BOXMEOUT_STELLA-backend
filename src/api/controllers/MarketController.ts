@@ -46,7 +46,8 @@ export const listMarketsValidation = validateQuery(listMarketsQuerySchema);
  */
 export async function listMarkets(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { status, weight_class, fighter, dateFrom, dateTo, page, limit } = req.query as z.infer<typeof listMarketsQuerySchema>;
+    const parsed = listMarketsQuerySchema.parse(req.query);
+    const { status, weight_class, fighter, dateFrom, dateTo, page, limit } = parsed;
     const { markets, total } = await MarketService.getMarkets(
       { status, weight_class, fighter, dateFrom, dateTo },
       { page, limit },
@@ -140,7 +141,7 @@ export async function getMarketStats(req: Request, res: Response, next: NextFunc
  * implied probability (as a percentage).
  * Responds 404 if market not found, 200 with AllOutcomeOdds.
  */
-const VALID_OUTCOMES = ['fighter_a', 'fighter_b', 'draw'] as const;
+const MARKET_ODDS_OUTCOMES = ['fighter_a', 'fighter_b', 'draw'] as const;
 
 export async function getMarketOdds(
   req: Request,
@@ -151,8 +152,8 @@ export async function getMarketOdds(
     const { market_id } = req.params;
     const outcome = req.query.outcome as string | undefined;
 
-    if (outcome && !VALID_OUTCOMES.includes(outcome as typeof VALID_OUTCOMES[number])) {
-      res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(', ')}` });
+    if (outcome && !MARKET_ODDS_OUTCOMES.includes(outcome as typeof MARKET_ODDS_OUTCOMES[number])) {
+      res.status(400).json({ error: `Invalid outcome. Must be one of: ${MARKET_ODDS_OUTCOMES.join(', ')}` });
       return;
     }
 
@@ -173,7 +174,7 @@ export async function getMarketOdds(
 
 const simulateQuerySchema = z.object({
   amount: z.coerce.number().positive({ message: 'amount must be a positive number' }),
-  outcome: z.enum(VALID_OUTCOMES),
+  outcome: z.enum(MARKET_ODDS_OUTCOMES),
 });
 
 /**
@@ -290,12 +291,10 @@ export async function getPlatformStats(req: Request, res: Response, next: NextFu
 // Issue #745 — resolveMarket (admin)
 // ---------------------------------------------------------------------------
 
-const VALID_OUTCOMES = ['fighter_a', 'fighter_b', 'draw', 'no_contest'] as const;
+const RESOLVE_OUTCOME_OPTIONS = ['fighter_a', 'fighter_b', 'draw', 'no_contest'] as const;
 
 const resolveMarketBodySchema = z.object({
-  winning_outcome: z.enum(VALID_OUTCOMES, {
-    errorMap: () => ({ message: `winning_outcome must be one of: ${VALID_OUTCOMES.join(', ')}` }),
-  }),
+  winning_outcome: z.enum(RESOLVE_OUTCOME_OPTIONS),
 });
 
 /**

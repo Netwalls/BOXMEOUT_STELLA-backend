@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import { randomUUID, createHash } from 'crypto';
 import { encrypt, decrypt } from './crypto.service';
 import { generateSecret, generateQRCode, verifyToken } from './totp.service';
 import { sendPasswordResetEmail } from './email.service';
@@ -13,6 +14,19 @@ const REFRESH_EXPIRES_IN = process.env.REFRESH_EXPIRES_IN ?? '7d';
 const TEMP_TOKEN_EXPIRES_IN = '5m';
 const RESET_TOKEN_EXPIRES_IN = '15m';
 const BCRYPT_ROUNDS = 12;
+const VERIFY_EMAIL_URL = process.env.VERIFY_EMAIL_URL ?? 'http://localhost:3001/auth/verify-email';
+
+async function generateEmailVerificationToken(userId: string): Promise<string> {
+  const token = randomUUID();
+  await redis.set(`email_verification:${token}`, userId, 'EX', 15 * 60);
+  return token;
+}
+
+async function sendVerificationEmail(email: string, token: string, url: string): Promise<boolean> {
+  // Stubbed email delivery for dev/test. In production, use a real email service.
+  logger.info({ email, url: `${url}?token=${token}` }, 'Email verification link generated');
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // In-memory user store — replace with DB queries in production
@@ -113,6 +127,11 @@ export async function isSessionRevoked(userId: string, sessionVersion: number): 
   return val !== null;
 }
 
+export function isEmailVerified(userId: string): boolean {
+  const user = users.get(userId);
+  return !!user?.emailVerified;
+}
+
 // ---------------------------------------------------------------------------
 // Auth service
 // ---------------------------------------------------------------------------
@@ -139,11 +158,14 @@ export async function register(
     passwordHash: password, // TODO: hash with bcrypt
     emailVerified: false,
     twoFactorEnabled: false,
+    sessionVersion: 0,
   };
   users.set(userId, user);
 
   // Generate verification token
   const token = await generateEmailVerificationToken(userId);
+  user.emailVerificationToken = token;
+  users.set(userId, user);
 
   // Send verification email
   const sent = await sendVerificationEmail(email, token, VERIFY_EMAIL_URL);

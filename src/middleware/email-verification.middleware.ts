@@ -22,6 +22,7 @@ export function requireEmailVerification(
       new AppError(
         403,
         'Email verification required',
+        undefined,
         { reason: 'Please verify your email before accessing this resource' },
       ),
     );

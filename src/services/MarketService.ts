@@ -216,6 +216,37 @@ export async function getMarketOdds(market_id: string): Promise<MarketOdds> {
 }
 
 /**
+ * Calculates parimutuel odds for a market.
+ * 
+ * Formula: odds_x = total_pool / outcome_pool
+ * Returns all three odds as floats rounded to 2 decimal places.
+ * Returns { fighterA: 0, fighterB: 0, draw: 0 } for empty pools.
+ */
+export async function calculateOdds(market_id: string): Promise<{ fighterA: number; fighterB: number; draw: number }> {
+  const market = await db().findMarketById(market_id);
+  if (!market) throw AppError.notFound(`Market not found: ${market_id}`);
+
+  const total_pool = BigInt(market.total_pool);
+  const pool_a = BigInt(market.pool_a);
+  const pool_b = BigInt(market.pool_b);
+  const pool_draw = BigInt(market.pool_draw);
+
+  if (total_pool === 0n) {
+    return { fighterA: 0, fighterB: 0, draw: 0 };
+  }
+
+  const fighterA = pool_a === 0n ? 0 : Number((total_pool * 100n) / pool_a) / 100;
+  const fighterB = pool_b === 0n ? 0 : Number((total_pool * 100n) / pool_b) / 100;
+  const draw = pool_draw === 0n ? 0 : Number((total_pool * 100n) / pool_draw) / 100;
+
+  return {
+    fighterA: Math.round(fighterA * 100) / 100,
+    fighterB: Math.round(fighterB * 100) / 100,
+    draw: Math.round(draw * 100) / 100,
+  };
+}
+
+/**
  * Returns all bets placed by a given Stellar address across all markets.
  * Returns an empty array (never 404) when the address has no bets.
  */

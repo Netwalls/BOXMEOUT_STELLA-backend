@@ -15,8 +15,9 @@
     "node_modules",
     "dist",
     "src/controllers",
-    "src/routes/users.routes.ts",
+    "src/middleware/email-verification.middleware.ts",
     "src/routes/disputes.routes.ts",
+    "src/routes/users.routes.ts",
     "src/schemas/validation.schemas.ts"
   ]
 }

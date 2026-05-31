@@ -90,9 +90,10 @@ export interface Portfolio {
 }
 
 export interface BettorStats {
+  bettor_address: string;
+  total_bets: number;
   total_wagered_xlm: number;
   total_winnings_xlm: number;
-  total_bets: number;
   win_rate: number;
   favorite_fighter: string | null;
 }
@@ -410,6 +411,39 @@ export async function getBetsByAddress(bettor_address: string): Promise<Bet[]> {
     placed_at: new Date(row.placed_at),
     claimed_at: row.claimed_at ? new Date(row.claimed_at) : null,
   } as Bet));
+}
+
+export async function getBettorStats(bettor_address: string): Promise<BettorStats> {
+  const bets = await getBetsByAddress(bettor_address);
+  const total_bets = bets.length;
+  const total_wagered_xlm = bets.reduce((sum, bet) => sum + Number(bet.amount) / 10_000_000, 0);
+  const total_winnings_xlm = bets.reduce(
+    (sum, bet) => sum + (bet.payout ? Number(bet.payout) / 10_000_000 : 0),
+    0,
+  );
+
+  const winCount = bets.filter((bet) => bet.payout && BigInt(bet.payout) > 0n).length;
+  const win_rate = total_bets === 0 ? 0 : Math.round((winCount / total_bets) * 10000) / 100;
+
+  const favoriteFighterCounts = bets.reduce<Record<string, number>>((counts, bet) => {
+    counts[bet.side] = (counts[bet.side] || 0) + 1;
+    return counts;
+  }, {});
+
+  const favorite_fighter = Object.entries(favoriteFighterCounts).reduce<string | null>((winner, [side, count]) => {
+    if (winner === null) return side;
+    const currentCount = favoriteFighterCounts[winner] ?? 0;
+    return count > currentCount ? side : winner;
+  }, null);
+
+  return {
+    bettor_address,
+    total_bets,
+    total_wagered_xlm,
+    total_winnings_xlm,
+    win_rate,
+    favorite_fighter,
+  };
 }
 
 /**

@@ -46,8 +46,8 @@ export const listMarketsValidation = validateQuery(listMarketsQuerySchema);
  */
 export async function listMarkets(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const query = req.query as unknown as z.infer<typeof listMarketsQuerySchema>;
-    const { status, weight_class, fighter, dateFrom, dateTo, page, limit } = query;
+    const parsed = listMarketsQuerySchema.parse(req.query);
+    const { status, weight_class, fighter, dateFrom, dateTo, page, limit } = parsed;
     const { markets, total } = await MarketService.getMarkets(
       { status, weight_class, fighter, dateFrom, dateTo },
       { page, limit },
@@ -141,7 +141,7 @@ export async function getMarketStats(req: Request, res: Response, next: NextFunc
  * implied probability (as a percentage).
  * Responds 404 if market not found, 200 with AllOutcomeOdds.
  */
-const VALID_OUTCOMES = ['fighter_a', 'fighter_b', 'draw'] as const;
+const MARKET_ODDS_OUTCOMES = ['fighter_a', 'fighter_b', 'draw'] as const;
 
 export async function getMarketOdds(
   req: Request,
@@ -152,8 +152,8 @@ export async function getMarketOdds(
     const { market_id } = req.params;
     const outcome = req.query.outcome as string | undefined;
 
-    if (outcome && !VALID_OUTCOMES.includes(outcome as typeof VALID_OUTCOMES[number])) {
-      res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(', ')}` });
+    if (outcome && !MARKET_ODDS_OUTCOMES.includes(outcome as typeof MARKET_ODDS_OUTCOMES[number])) {
+      res.status(400).json({ error: `Invalid outcome. Must be one of: ${MARKET_ODDS_OUTCOMES.join(', ')}` });
       return;
     }
 
@@ -174,7 +174,7 @@ export async function getMarketOdds(
 
 const simulateQuerySchema = z.object({
   amount: z.coerce.number().positive({ message: 'amount must be a positive number' }),
-  outcome: z.enum(VALID_OUTCOMES),
+  outcome: z.enum(MARKET_ODDS_OUTCOMES),
 });
 
 /**

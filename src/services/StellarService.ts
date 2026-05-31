@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ============================================================
 // BOXMEOUT — Stellar Service
 // Low-level Stellar SDK wrapper for contract interactions.

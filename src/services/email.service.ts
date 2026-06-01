@@ -1,12 +1,61 @@
+import fs from 'fs';
+import path from 'path';
 import nodemailer from 'nodemailer';
 import { logger } from '../utils/logger';
 
 // ---------------------------------------------------------------------------
-// Transporter — configure via env vars.
-// For production use SMTP_HOST/PORT/USER/PASS.
-// Falls back to Ethereal (catch-all test account) when env vars are absent.
+// Types
 // ---------------------------------------------------------------------------
-function createTransporter() {
+
+export type EmailTemplate =
+  | 'verify_email'
+  | 'reset_password'
+  | 'market_resolved'
+  | 'winnings_available'
+  | 'dispute_filed'
+  | 'dispute_resolved';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const APP_NAME = process.env.APP_NAME ?? 'BoxMeOut';
+const APP_BASE_URL = process.env.APP_BASE_URL ?? 'http://localhost:3001';
+const FROM_ADDRESS = process.env.SMTP_FROM ?? 'no-reply@boxmeout.app';
+
+const TEMPLATES_DIR = path.resolve(__dirname, '../email/templates');
+
+const SUBJECTS: Record<EmailTemplate, string> = {
+  verify_email: `Verify your ${APP_NAME} email address`,
+  reset_password: `Reset your ${APP_NAME} password`,
+  market_resolved: `[${APP_NAME}] Market resolved`,
+  winnings_available: `[${APP_NAME}] Your winnings are available`,
+  dispute_filed: `[${APP_NAME}] Dispute filed`,
+  dispute_resolved: `[${APP_NAME}] Dispute resolved`,
+};
+
+// ---------------------------------------------------------------------------
+// Transporter — branches on EMAIL_PROVIDER env var (smtp | sendgrid)
+// ---------------------------------------------------------------------------
+
+function createTransporter(): nodemailer.Transporter {
+  const provider = process.env.EMAIL_PROVIDER ?? 'smtp';
+
+  if (provider === 'sendgrid') {
+    const apiKey = process.env.SENDGRID_API_KEY;
+    if (!apiKey) {
+      logger.warn('SENDGRID_API_KEY not set; falling back to stub transport');
+      return nodemailer.createTransport({ jsonTransport: true });
+    }
+    return nodemailer.createTransport({
+      host: 'smtp.sendgrid.net',
+      port: 587,
+      secure: false,
+      auth: { user: 'apikey', pass: apiKey },
+    });
+  }
+
+  // Default: SMTP
   const host = process.env.SMTP_HOST;
   const port = parseInt(process.env.SMTP_PORT ?? '587', 10);
   const user = process.env.SMTP_USER;
@@ -21,81 +70,69 @@ function createTransporter() {
     });
   }
 
-  // Development fallback — logs preview URL to console
-  logger.warn('SMTP env vars not set; using nodemailer stub transport (emails will not be delivered)');
+  logger.warn('SMTP env vars not set; using stub transport (emails will not be delivered)');
   return nodemailer.createTransport({ jsonTransport: true });
 }
 
 const transporter = createTransporter();
 
-const APP_NAME = process.env.APP_NAME ?? 'BoxMeOut';
-const APP_BASE_URL = process.env.APP_BASE_URL ?? 'http://localhost:3001';
-const FROM_ADDRESS = process.env.SMTP_FROM ?? `no-reply@boxmeout.app`;
+// ---------------------------------------------------------------------------
+// Template rendering
+// ---------------------------------------------------------------------------
+
+function renderTemplate(template: EmailTemplate, data: Record<string, string>): string {
+  const filePath = path.join(TEMPLATES_DIR, `${template}.html`);
+  let html = fs.readFileSync(filePath, 'utf-8');
+  for (const [key, value] of Object.entries(data)) {
+    html = html.replaceAll(`{{${key}}}`, value);
+  }
+  return html;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
- * Send a password-reset email containing a signed JWT link.
- * Failures are caught and logged — never thrown — so the caller cannot
- * distinguish "email sent" from "email failed" (prevents enumeration).
+ * Generic transactional email sender.
+ * Loads the matching HTML template, interpolates {{key}} placeholders,
+ * and dispatches via the configured transport.
+ * Errors are logged but never thrown — callers are not affected by delivery failures.
  */
+export async function sendEmail(
+  to: string,
+  template: EmailTemplate,
+  data: Record<string, string>,
+): Promise<void> {
+  const mergedData = { appName: APP_NAME, ...data };
+  try {
+    const html = renderTemplate(template, mergedData);
+    const info = await transporter.sendMail({
+      from: `"${APP_NAME}" <${FROM_ADDRESS}>`,
+      to,
+      subject: SUBJECTS[template],
+      html,
+    });
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info({ msg: `Email sent (dev)`, template, messageId: info.messageId });
+    }
+  } catch (err) {
+    logger.error({ msg: 'Failed to send email', template, to, error: err });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Convenience wrappers (preserve existing call sites)
+// ---------------------------------------------------------------------------
+
 export async function sendPasswordResetEmail(
   toEmail: string,
   resetToken: string,
 ): Promise<void> {
   const resetUrl = `${APP_BASE_URL}/auth/reset-password?token=${resetToken}`;
-
-  const html = `
-    <p>Hi,</p>
-    <p>We received a request to reset your <strong>${APP_NAME}</strong> password.</p>
-    <p>
-      <a href="${resetUrl}" style="
-        display:inline-block;
-        padding:10px 20px;
-        background:#4f46e5;
-        color:#fff;
-        border-radius:4px;
-        text-decoration:none;
-      ">Reset my password</a>
-    </p>
-    <p><strong>⚠ This link expires in 15 minutes.</strong></p>
-    <p>If you did not request a password reset, you can safely ignore this email.</p>
-    <p>— The ${APP_NAME} team</p>
-  `;
-
-  const text = [
-    `Reset your ${APP_NAME} password`,
-    '',
-    `Visit the link below to reset your password (expires in 15 minutes):`,
-    resetUrl,
-    '',
-    'If you did not request a password reset, ignore this email.',
-  ].join('\n');
-
-  try {
-    const info = await transporter.sendMail({
-      from: `"${APP_NAME}" <${FROM_ADDRESS}>`,
-      to: toEmail,
-      subject: `Reset your ${APP_NAME} password`,
-      text,
-      html,
-    });
-
-    // In dev the jsonTransport serialises the message — log it for inspection
-    if (process.env.NODE_ENV !== 'production') {
-      logger.info({ msg: 'Password reset email (dev)', messageId: info.messageId });
-    }
-  } catch (err) {
-    // Log but swallow — callers must not learn whether delivery succeeded
-    logger.error({ msg: 'Failed to send password reset email', error: err });
-  }
+  await sendEmail(toEmail, 'reset_password', { resetUrl });
 }
 
-/**
- * Send an async export-ready email with the CSV as an attachment.
- */
 export async function sendExportReadyEmail(
   toEmail: string,
   exportType: string,

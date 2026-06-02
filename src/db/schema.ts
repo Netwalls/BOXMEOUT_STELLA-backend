@@ -122,6 +122,7 @@ export const notification_jobs = pgTable(
     status: text('status').default('pending'),
     created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
     processed_at: timestamp('processed_at', { withTimezone: true }),
+    deleted_at: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
     market_id_idx: index('notification_jobs_market_id_idx').on(table.market_id),
@@ -148,6 +149,56 @@ export const disputes = pgTable(
   }),
 );
 
+export const user_sessions = pgTable(
+  'user_sessions',
+  {
+    id: serial('id').primaryKey(),
+    user_id: text('user_id').notNull(),
+    session_token: text('session_token').notNull().unique(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('user_sessions_user_id_idx').on(table.user_id),
+    expires_at_idx: index('user_sessions_expires_at_idx').on(table.expires_at),
+  }),
+);
+
+export const password_reset_tokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: serial('id').primaryKey(),
+    user_id: text('user_id').notNull(),
+    token_hash: text('token_hash').notNull().unique(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('password_reset_tokens_user_id_idx').on(table.user_id),
+    expires_at_idx: index('password_reset_tokens_expires_at_idx').on(table.expires_at),
+  }),
+);
+
+export const distributions = pgTable(
+  'distributions',
+  {
+    id: serial('id').primaryKey(),
+    market_id: text('market_id').notNull().references(() => markets.market_id),
+    bettor_address: text('bettor_address').notNull(),
+    amount: numeric('amount').notNull(),
+    status: text('status').default('pending'),
+    tx_hash: text('tx_hash'),
+    archived_at: timestamp('archived_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    market_id_idx: index('distributions_market_id_idx').on(table.market_id),
+    status_idx: index('distributions_status_idx').on(table.status),
+    created_at_idx: index('distributions_created_at_idx').on(table.created_at),
+  }),
+);
+
 export type Market = typeof markets.$inferSelect;
 export type NewMarket = typeof markets.$inferInsert;
 export type Bet = typeof bets.$inferSelect;
@@ -157,3 +208,7 @@ export type OracleReport = typeof oracle_reports.$inferSelect;
 export type NotificationJob = typeof notification_jobs.$inferSelect;
 export type Dispute = typeof disputes.$inferSelect;
 export type NewDispute = typeof disputes.$inferInsert;
+export type UserSession = typeof user_sessions.$inferSelect;
+export type PasswordResetToken = typeof password_reset_tokens.$inferSelect;
+export type Distribution = typeof distributions.$inferSelect;
+export type NewDistribution = typeof distributions.$inferInsert;

@@ -14,6 +14,7 @@ import adminRouter from "./routes/admin.routes";
 import { getPortfolio, getPlatformStats } from "./api/controllers/MarketController";
 import claimsRouter from "./routes/bet.routes";
 import { startAutoResolutionCron, startAutoLockCron } from "./cron/autoResolution.cron";
+import { startCleanupCron } from "./cron/cleanup.cron";
 import { initActivityFeed } from "./websocket/realtime";
 
 // Validate environment variables on startup
@@ -102,6 +103,7 @@ const server = app.listen(PORT, () => {
   }
   startAutoResolutionCron();
   startAutoLockCron();
+  startCleanupCron();
 });
 
 initActivityFeed(server);

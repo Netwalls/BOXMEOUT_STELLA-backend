@@ -1,0 +1,104 @@
+// BOXMEOUT — Prisma Schema
+// Run: npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MarketStatus {
+  Open
+  Locked
+  Resolved
+  Cancelled
+  Disputed
+}
+
+enum Outcome {
+  FighterA
+  FighterB
+  Draw
+  NoContest
+}
+
+enum BetSide {
+  FighterA
+  FighterB
+}
+
+model Market {
+  id              String       @id
+  contractAddress String       @unique
+  fighterA        Json
+  fighterB        Json
+  scheduledAt     DateTime
+  bettingEndsAt   DateTime
+  createdAt       DateTime
+  createdBy       String
+  status          MarketStatus @default(Open)
+  outcome         Outcome?
+  resolvedAt      DateTime?
+  poolA           BigInt       @default(0)
+  poolB           BigInt       @default(0)
+  totalPool       BigInt       @default(0)
+  oracleAddress   String
+  txHash          String?
+  bets            Bet[]
+  disputes        Dispute[]
+  oracleResult    OracleResult?
+}
+
+model Bet {
+  id        String    @id
+  marketId  String
+  market    Market    @relation(fields: [marketId], references: [id])
+  bettor    String
+  side      BetSide
+  amount    BigInt
+  placedAt  DateTime
+  claimed   Boolean   @default(false)
+  claimedAt DateTime?
+  payout    BigInt?
+  txHash    String?
+}
+
+model Dispute {
+  id         String    @id @default(uuid())
+  marketId   String
+  market     Market    @relation(fields: [marketId], references: [id])
+  raisedBy   String
+  reason     String
+  raisedAt   DateTime  @default(now())
+  resolvedAt DateTime?
+  resolution String?
+}
+
+model OracleResult {
+  id          String   @id @default(uuid())
+  marketId    String   @unique
+  market      Market   @relation(fields: [marketId], references: [id])
+  reportedBy  String
+  outcome     Outcome
+  source      String
+  reportedAt  DateTime @default(now())
+  confirmed   Boolean  @default(false)
+}
+
+model IndexerState {
+  id          Int      @id @default(1)
+  lastLedger  Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+model AdminLog {
+  id        String   @id @default(uuid())
+  action    String
+  actor     String
+  target    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}

@@ -1,4 +1,5 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
+import * as betService from "../../services/bet.service";
 
 /**
  * GET /api/bets/:address
@@ -10,11 +11,29 @@ export async function getBetsByAddressHandler(req: Request, res: Response): Prom
 }
 
 /**
- * GET /api/bets/:address/portfolio
+ * GET /api/bets/:address/portfolio (issue #907)
  * Returns portfolio summary (total staked, winnings, ROI) for an address.
+ * Returns zero-value summary (never 404) for unknown addresses.
  */
-export async function getPortfolioHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+export async function getPortfolioHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { address } = req.params;
+
+    // Basic Stellar public key validation (G..., 56 chars, base32)
+    if (typeof address !== "string" || !address.startsWith("G") || address.length !== 56) {
+      res.status(400).json({ error: "Invalid Stellar address format", code: "VALIDATION_ERROR" });
+      return;
+    }
+
+    const portfolio = await betService.getPortfolioSummary(address);
+    res.status(200).json(portfolio);
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**

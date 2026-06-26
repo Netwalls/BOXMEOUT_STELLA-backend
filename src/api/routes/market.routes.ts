@@ -8,6 +8,7 @@ import {
   resolveDisputeHandler,
   getPendingResolutionsHandler,
 } from "../controllers/market.controller";
+import { adminAuth } from "../middleware/adminAuth";
 
 const router = Router();
 
@@ -17,9 +18,9 @@ router.get("/:id", getMarketByIdHandler);
 router.get("/:id/stats", getMarketStatsHandler);
 router.get("/:id/bets", getMarketBetsHandler);
 
-// Admin
-router.post("/admin/markets/resolve", resolveMarketHandler);
-router.post("/admin/markets/dispute/resolve", resolveDisputeHandler);
-router.get("/admin/markets/pending", getPendingResolutionsHandler);
+// Admin — protected by Bearer ADMIN_API_KEY (issue #909/#910)
+router.post("/admin/markets/resolve", adminAuth, resolveMarketHandler);
+router.post("/admin/markets/dispute/resolve", adminAuth, resolveDisputeHandler);
+router.get("/admin/markets/pending", adminAuth, getPendingResolutionsHandler);
 
 export default router;

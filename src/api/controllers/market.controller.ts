@@ -1,6 +1,7 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { PrismaClient } from "@prisma/client";
 import * as marketService from "../../services/market.service";
+import * as oracleService from "../../services/oracle.service";
 
 const prisma = new PrismaClient();
 
@@ -38,12 +39,31 @@ export async function getMarketBetsHandler(req: Request, res: Response): Promise
 }
 
 /**
- * POST /api/admin/markets/resolve
- * Body: { market_id, outcome, source }
- * Admin-protected. Submits oracle result and triggers on-chain resolution.
+ * POST /api/admin/markets/resolve (issue #909)
+ * Body: { oracle_result_id: number }
+ * Admin-protected (adminAuth middleware). Confirms an oracle result and
+ * triggers on-chain market resolution. Returns 200 { status: 'ok' }.
  */
-export async function resolveMarketHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+export async function resolveMarketHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { oracle_result_id } = req.body;
+
+    if (oracle_result_id === undefined || oracle_result_id === null) {
+      res.status(400).json({ error: "oracle_result_id is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+
+    const id = Number(oracle_result_id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "oracle_result_id must be a positive integer", code: "VALIDATION_ERROR" });
+      return;
+    }
+
+    await oracleService.confirmFightResult(String(id), "admin");
+    res.status(200).json({ status: "ok" });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   resolveDisputeHandler,
   getPendingResolutionsHandler,
 } from "../controllers/market.controller";
+import { requireAdmin } from "../middleware/auth";
 
 const router = Router();
 
@@ -18,8 +19,8 @@ router.get("/:id/stats", getMarketStatsHandler);
 router.get("/:id/bets", getMarketBetsHandler);
 
 // Admin
-router.post("/admin/markets/resolve", resolveMarketHandler);
-router.post("/admin/markets/dispute/resolve", resolveDisputeHandler);
-router.get("/admin/markets/pending", getPendingResolutionsHandler);
+router.post("/admin/markets/resolve", requireAdmin, resolveMarketHandler);
+router.post("/admin/markets/dispute/resolve", requireAdmin, resolveDisputeHandler);
+router.get("/admin/markets/pending", requireAdmin, getPendingResolutionsHandler);
 
 export default router;

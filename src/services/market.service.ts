@@ -1,4 +1,5 @@
 import { Market, MarketStatus, Outcome } from "@prisma/client";
+import { db } from "../db";
 
 export interface MarketFilters {
   status?: MarketStatus;
@@ -16,7 +17,7 @@ export interface MarketStats {
   poolA: bigint;
   poolB: bigint;
   totalVolume: bigint;
-  impliedOddsA: number; // 0-100 percentage
+  impliedOddsA: number;
   impliedOddsB: number;
 }
 
@@ -39,70 +40,106 @@ export interface CreateMarketDTO {
   txHash?: string;
 }
 
-/**
- * Fetches all markets from the database with optional filters and pagination.
- * Returns results ordered by scheduledAt ascending.
- */
 export async function getAllMarkets(
   filters?: MarketFilters,
   pagination?: Pagination
 ): Promise<Market[]> {
-  throw new Error("Not implemented");
+  const where: Record<string, unknown> = {};
+
+  if (filters?.status) {
+    where.status = filters.status;
+  }
+
+  const page = pagination?.page ?? 1;
+  const limit = pagination?.limit ?? 20;
+
+  return db.market.findMany({
+    where,
+    orderBy: { scheduledAt: "asc" },
+    skip: (page - 1) * limit,
+    take: limit,
+  });
 }
 
-/**
- * Fetches a single market by its on-chain market_id.
- * Returns null if not found — does NOT throw.
- */
 export async function getMarketById(market_id: string): Promise<Market | null> {
-  throw new Error("Not implemented");
+  return db.market.findUnique({ where: { id: market_id } });
 }
 
-/**
- * Persists a newly deployed market to the database.
- * Called by the indexer on MarketCreated event.
- * Must be idempotent — safe to call again on event replay.
- */
 export async function createMarketRecord(
   marketData: CreateMarketDTO
 ): Promise<Market> {
-  throw new Error("Not implemented");
+  return db.market.upsert({
+    where: { id: marketData.id },
+    update: {},
+    create: {
+      id: marketData.id,
+      contractAddress: marketData.contractAddress,
+      fighterA: marketData.fighterA,
+      fighterB: marketData.fighterB,
+      scheduledAt: marketData.scheduledAt,
+      bettingEndsAt: marketData.bettingEndsAt,
+      createdAt: marketData.createdAt,
+      createdBy: marketData.createdBy,
+      oracleAddress: marketData.oracleAddress,
+      txHash: marketData.txHash,
+    },
+  });
 }
 
-/**
- * Updates a market's status and optional outcome in the database.
- * Called when the indexer detects MarketLocked, MarketResolved, or Cancelled events.
- */
 export async function updateMarketStatus(
   market_id: string,
   status: MarketStatus,
   outcome?: Outcome
 ): Promise<Market> {
-  throw new Error("Not implemented");
+  return db.market.update({
+    where: { id: market_id },
+    data: {
+      status,
+      ...(outcome !== undefined && { outcome }),
+      ...(status === MarketStatus.Resolved && { resolvedAt: new Date() }),
+    },
+  });
 }
 
-/**
- * Updates pool_a, pool_b, and total_pool after each BetPlaced event.
- * Keeps the database in sync with on-chain pool state.
- */
 export async function updateMarketPools(
   market_id: string,
   pool_a: bigint,
   pool_b: bigint
 ): Promise<void> {
-  throw new Error("Not implemented");
+  await db.market.update({
+    where: { id: market_id },
+    data: { poolA: pool_a, poolB: pool_b, totalPool: pool_a + pool_b },
+  });
 }
 
-/**
- * Returns aggregate stats: total bets, unique bettors, pool sizes, implied odds.
- */
 export async function getMarketStats(market_id: string): Promise<MarketStats> {
-  throw new Error("Not implemented");
+  const market = await db.market.findUnique({
+    where: { id: market_id },
+    include: { bets: true },
+  });
+
+  if (!market) {
+    throw Object.assign(new Error("Market not found"), { code: "NOT_FOUND" });
+  }
+
+  const totalBets = market.bets.length;
+  const uniqueBettors = new Set(market.bets.map((b) => b.bettor)).size;
+  const poolA = market.poolA;
+  const poolB = market.poolB;
+  const totalVolume = market.totalPool;
+
+  const impliedOddsA =
+    totalVolume > 0n
+      ? Number((poolA * 10000n) / totalVolume) / 100
+      : 50;
+  const impliedOddsB =
+    totalVolume > 0n
+      ? Number((poolB * 10000n) / totalVolume) / 100
+      : 50;
+
+  return { totalBets, uniqueBettors, poolA, poolB, totalVolume, impliedOddsA, impliedOddsB };
 }
 
-/**
- * Returns the top bettors by stake size for a given market.
- */
 export async function getMarketLeaderboard(
   market_id: string
 ): Promise<LeaderboardEntry[]> {

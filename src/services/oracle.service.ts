@@ -1,4 +1,20 @@
 import { Dispute, Market, OracleResult, Outcome } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import {
+  SorobanRpc,
+  TransactionBuilder,
+  Networks,
+  Contract,
+  Keypair,
+  BASE_FEE,
+  nativeToScVal,
+} from "@stellar/stellar-sdk";
+
+const prisma = new PrismaClient();
+const RPC_URL = process.env.STELLAR_RPC_URL!;
+const NETWORK = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY!;
+const DISPUTE_CONTRACT_ID = process.env.DISPUTE_CONTRACT_ID!;
 
 export interface ExternalFightResult {
   matchId: string;
@@ -49,7 +65,16 @@ export async function fetchExternalResult(
  * Used by admin dashboard to show fights awaiting resolution.
  */
 export async function listPendingResolutions(): Promise<Market[]> {
-  throw new Error("Not implemented");
+  return prisma.market.findMany({
+    where: {
+      status: "Locked",
+      OR: [
+        { oracleResult: null },
+        { oracleResult: { confirmed: false } },
+      ],
+    },
+    orderBy: { scheduledAt: "asc" },
+  });
 }
 
 /**
@@ -61,7 +86,37 @@ export async function raiseDispute(
   bettor: string,
   reason: string
 ): Promise<Dispute> {
-  throw new Error("Not implemented");
+  const market = await prisma.market.findUnique({ where: { id: market_id } });
+  if (!market || market.status !== "Resolved") {
+    throw new Error("Market must be in Resolved status to raise a dispute");
+  }
+
+  const dispute = await prisma.dispute.create({
+    data: { marketId: market_id, raisedBy: bettor, reason },
+  });
+
+  const server = new SorobanRpc.Server(RPC_URL);
+  const keypair = Keypair.fromSecret(ADMIN_SECRET);
+  const account = await server.getAccount(keypair.publicKey());
+  const contract = new Contract(market.contractAddress);
+
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK })
+    .addOperation(contract.call("raise_dispute", nativeToScVal(dispute.id, { type: "string" })))
+    .setTimeout(30)
+    .build();
+
+  const prepared = await server.prepareTransaction(tx);
+  prepared.sign(keypair);
+  await server.sendTransaction(prepared);
+
+  await prisma.$transaction([
+    prisma.market.update({ where: { id: market_id }, data: { status: "Disputed" } }),
+    prisma.adminLog.create({
+      data: { action: "raiseDispute", actor: bettor, target: market_id, metadata: { disputeId: dispute.id, reason } },
+    }),
+  ]);
+
+  return dispute;
 }
 
 /**
@@ -73,5 +128,38 @@ export async function resolveDispute(
   override_outcome: Outcome,
   admin: string
 ): Promise<void> {
-  throw new Error("Not implemented");
+  const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: dispute_id } });
+  const market = await prisma.market.findUniqueOrThrow({ where: { id: dispute.marketId } });
+
+  const server = new SorobanRpc.Server(RPC_URL);
+  const keypair = Keypair.fromSecret(ADMIN_SECRET);
+  const account = await server.getAccount(keypair.publicKey());
+  const contract = new Contract(market.contractAddress);
+
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK })
+    .addOperation(contract.call(
+      "resolve_dispute",
+      nativeToScVal(dispute_id, { type: "string" }),
+      nativeToScVal(override_outcome, { type: "symbol" }),
+    ))
+    .setTimeout(30)
+    .build();
+
+  const prepared = await server.prepareTransaction(tx);
+  prepared.sign(keypair);
+  await server.sendTransaction(prepared);
+
+  await prisma.$transaction([
+    prisma.dispute.update({
+      where: { id: dispute_id },
+      data: { resolvedAt: new Date(), resolution: override_outcome },
+    }),
+    prisma.market.update({
+      where: { id: dispute.marketId },
+      data: { status: "Resolved", outcome: override_outcome },
+    }),
+    prisma.adminLog.create({
+      data: { action: "resolveDispute", actor: admin, target: dispute.marketId, metadata: { disputeId: dispute_id, override_outcome } },
+    }),
+  ]);
 }

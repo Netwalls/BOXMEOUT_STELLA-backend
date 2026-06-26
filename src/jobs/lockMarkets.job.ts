@@ -7,6 +7,7 @@ import {
   Keypair,
   BASE_FEE,
 } from "@stellar/stellar-sdk";
+import { logger } from "../logger";
 
 const prisma = new PrismaClient();
 
@@ -46,9 +47,9 @@ async function lockMarkets(): Promise<void> {
       prepared.sign(keypair);
       const result = await server.sendTransaction(prepared);
 
-      console.log(`[lockMarkets] Locked market ${market.id} — tx: ${result.hash}`);
+      logger.info({ marketId: market.id, txHash: result.hash }, "market locked");
     } catch (err) {
-      console.error(`[lockMarkets] Failed to lock market ${market.id}:`, err);
+      logger.error({ err, marketId: market.id }, "failed to lock market");
     }
   }
 }
@@ -56,7 +57,7 @@ async function lockMarkets(): Promise<void> {
 export function startLockMarketsJob(): void {
   setInterval(() => {
     lockMarkets().catch((err) =>
-      console.error("[lockMarkets] Unexpected job error:", err)
+      logger.error({ err }, "unexpected lockMarkets job error")
     );
   }, 60_000);
 }

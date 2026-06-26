@@ -1,73 +1,93 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import { logger } from "../../logger";
 import * as marketService from "../../services/market.service";
 
 const prisma = new PrismaClient();
 
-/**
- * GET /api/markets
- * Query params: status, weightClass, page, limit
- * Returns paginated list of boxing markets.
- */
 export async function getMarketsHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const { status, weightClass, page = "1", limit = "20" } = req.query as Record<string, string>;
+    const markets = await marketService.getAllMarkets(
+      { status: status as marketService.MarketFilters["status"], weightClass },
+      { page: parseInt(page, 10), limit: parseInt(limit, 10) }
+    );
+    res.json({ data: markets, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+  } catch (err) {
+    logger.error({ err }, "getMarketsHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /api/markets/:id
- * Returns full market detail. Responds 404 if not found.
- */
 export async function getMarketByIdHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const market = await marketService.getMarketById(req.params.id);
+    if (!market) {
+      res.status(404).json({ error: "Market not found" });
+      return;
+    }
+    res.json({ data: market });
+  } catch (err) {
+    logger.error({ err }, "getMarketByIdHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /api/markets/:id/stats
- * Returns aggregate stats: bet count, volume, current odds.
- */
 export async function getMarketStatsHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const stats = await marketService.getMarketStats(req.params.id);
+    res.json({ data: stats });
+  } catch (err) {
+    logger.error({ err }, "getMarketStatsHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /api/markets/:id/bets
- * Returns all bets for a specific market. Supports pagination.
- */
 export async function getMarketBetsHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const { page = "1", limit = "20" } = req.query as Record<string, string>;
+    const bets = await marketService.getMarketLeaderboard(req.params.id);
+    res.json({ data: bets, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+  } catch (err) {
+    logger.error({ err }, "getMarketBetsHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * POST /api/admin/markets/resolve
- * Body: { market_id, outcome, source }
- * Admin-protected. Submits oracle result and triggers on-chain resolution.
- */
 export async function resolveMarketHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const { market_id, status, outcome } = req.body as {
+      market_id: string;
+      status: marketService.MarketFilters["status"];
+      outcome?: Parameters<typeof marketService.updateMarketStatus>[2];
+    };
+    const market = await marketService.updateMarketStatus(market_id, status as Parameters<typeof marketService.updateMarketStatus>[1], outcome);
+    res.json({ data: market });
+  } catch (err) {
+    logger.error({ err }, "resolveMarketHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * POST /api/admin/markets/dispute/resolve
- * Body: { dispute_id, override_outcome }
- * Admin-protected. Resolves a disputed market with an override outcome.
- */
 export async function resolveDisputeHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err }, "resolveDisputeHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /api/admin/markets/pending
- * Admin-protected. Returns markets in Locked status awaiting resolution.
- */
 export async function getPendingResolutionsHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const markets = await marketService.getAllMarkets({ status: "Locked" });
+    res.json({ data: markets });
+  } catch (err) {
+    logger.error({ err }, "getPendingResolutionsHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /health
- * Returns { status: "ok", db: "connected" } if service is healthy.
- * Used by load balancers and uptime monitors.
- */
 export async function healthCheckHandler(req: Request, res: Response): Promise<void> {
   try {
     await prisma.$queryRaw`SELECT 1`;

@@ -1,4 +1,5 @@
 import { Market, MarketStatus, Outcome } from "@prisma/client";
+import db from "../lib/db";
 
 export interface MarketFilters {
   status?: MarketStatus;
@@ -66,7 +67,23 @@ export async function getMarketById(market_id: string): Promise<Market | null> {
 export async function createMarketRecord(
   marketData: CreateMarketDTO
 ): Promise<Market> {
-  throw new Error("Not implemented");
+  const data = {
+    contractAddress: marketData.contractAddress,
+    fighterA: marketData.fighterA,
+    fighterB: marketData.fighterB,
+    scheduledAt: marketData.scheduledAt,
+    bettingEndsAt: marketData.bettingEndsAt,
+    createdAt: marketData.createdAt,
+    createdBy: marketData.createdBy,
+    oracleAddress: marketData.oracleAddress,
+    txHash: marketData.txHash,
+  };
+
+  return db.market.upsert({
+    where: { id: marketData.id },
+    create: { id: marketData.id, ...data },
+    update: {},
+  });
 }
 
 /**

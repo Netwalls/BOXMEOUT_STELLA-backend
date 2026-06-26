@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
+import { PrismaClient } from "@prisma/client";
 import * as marketService from "../../services/market.service";
+
+const prisma = new PrismaClient();
 
 /**
  * GET /api/markets
@@ -66,5 +69,10 @@ export async function getPendingResolutionsHandler(req: Request, res: Response):
  * Used by load balancers and uptime monitors.
  */
 export async function healthCheckHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ status: "ok", db: "connected" });
+  } catch {
+    res.status(503).json({ status: "degraded", db: "disconnected" });
+  }
 }

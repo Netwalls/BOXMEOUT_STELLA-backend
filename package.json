@@ -21,6 +21,7 @@
     "zod": "^3.22.0",
     "pino": "^8.0.0",
     "bullmq": "^5.0.0",
+    "express-rate-limit": "^7.0.0",
     "ioredis": "^5.0.0"
   },
   "devDependencies": {

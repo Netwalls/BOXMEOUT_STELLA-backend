@@ -14,6 +14,9 @@ const config: Config = {
   },
   clearMocks: true,
   restoreMocks: true,
+  rootDir: ".",
+  testMatch: ["**/__tests__/**/*.test.ts", "**/tests/**/*.test.ts"],
+  moduleFileExtensions: ["ts", "js", "json"],
 };
 
 export default config;

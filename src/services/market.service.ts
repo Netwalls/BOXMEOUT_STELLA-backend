@@ -1,4 +1,6 @@
-import { Market, MarketStatus, Outcome } from "@prisma/client";
+import { Market, MarketStatus, Outcome, PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export interface MarketFilters {
   status?: MarketStatus;
@@ -47,7 +49,19 @@ export async function getAllMarkets(
   filters?: MarketFilters,
   pagination?: Pagination
 ): Promise<Market[]> {
-  throw new Error("Not implemented");
+  const where: { status?: MarketStatus; weightClass?: string } = {};
+  if (filters?.status) where.status = filters.status;
+  if (filters?.weightClass) where.weightClass = filters.weightClass;
+
+  const page = pagination?.page ?? 1;
+  const limit = pagination?.limit ?? 20;
+
+  return prisma.market.findMany({
+    where,
+    orderBy: { scheduledAt: "asc" },
+    skip: (page - 1) * limit,
+    take: limit,
+  });
 }
 
 /**

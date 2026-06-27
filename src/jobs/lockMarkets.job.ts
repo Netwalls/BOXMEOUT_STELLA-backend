@@ -15,6 +15,44 @@ const RPC_URL = process.env.STELLAR_RPC_URL!;
 const NETWORK = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY!;
 
+const MAX_RETRIES = 3;
+const MAX_FEE = 1_000_000; // stroops — hard cap regardless of backoff
+
+async function lockMarketWithRetry(
+  server: SorobanRpc.Server,
+  keypair: Keypair,
+  market: { id: string; contractAddress: string }
+): Promise<void> {
+  const account = await server.getAccount(keypair.publicKey());
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const fee = Math.min(
+      Number(BASE_FEE) * Math.pow(2, attempt),
+      MAX_FEE
+    ).toString();
+
+    try {
+      const contract = new Contract(market.contractAddress);
+      const tx = new TransactionBuilder(account, {
+        fee,
+        networkPassphrase: NETWORK,
+      })
+        .addOperation(contract.call("lock_market"))
+        .setTimeout(30)
+        .build();
+
+      const prepared = await server.prepareTransaction(tx);
+      prepared.sign(keypair);
+      const result = await server.sendTransaction(prepared);
+
+      console.log(`[lockMarkets] Locked market ${market.id} — tx: ${result.hash}`);
+      return;
+    } catch (err) {
+      if (attempt === MAX_RETRIES) throw err;
+      console.warn(`[lockMarkets] Attempt ${attempt + 1} failed for ${market.id}, retrying with higher fee...`);
+    }
+  }
+}
+
 async function lockMarkets(): Promise<void> {
   const now = new Date();
 
@@ -30,7 +68,6 @@ async function lockMarkets(): Promise<void> {
 
   const server = new SorobanRpc.Server(RPC_URL);
   const keypair = Keypair.fromSecret(ADMIN_SECRET);
-  const account = await server.getAccount(keypair.publicKey());
 
   for (const market of markets) {
     try {
@@ -48,6 +85,7 @@ async function lockMarkets(): Promise<void> {
       const result = await server.sendTransaction(prepared);
 
       logger.info({ marketId: market.id, txHash: result.hash }, "market locked");
+      await lockMarketWithRetry(server, keypair, market);
     } catch (err) {
       logger.error({ err, marketId: market.id }, "failed to lock market");
     }

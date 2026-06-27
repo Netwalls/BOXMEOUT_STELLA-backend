@@ -1,27 +1,74 @@
 import { Request, Response } from "express";
+import { BetSide } from "@prisma/client";
+import { logger } from "../../logger";
+import * as betService from "../../services/bet.service";
 
-/**
- * GET /api/bets/:address
- * Returns all bets placed by a Stellar address.
- * Supports optional query params: status, marketId.
- */
 export async function getBetsByAddressHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const { address } = req.params;
+    const { status, marketId } = req.query as {
+      status?: betService.BetFilters["status"];
+      marketId?: string;
+    };
+    const bets = await betService.getBetsByAddress(address, { status, marketId });
+    res.json({ data: bets });
+  } catch (err) {
+    logger.error({ err }, "getBetsByAddressHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /api/bets/:address/portfolio
- * Returns portfolio summary (total staked, winnings, ROI) for an address.
- */
 export async function getPortfolioHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const { address } = req.params;
+    const portfolio = await betService.getPortfolioSummary(address);
+    res.json({ data: portfolio });
+  } catch (err) {
+    logger.error({ err }, "getPortfolioHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
 
-/**
- * GET /api/bets/payout-estimate
- * Query params: market_id, side, amount
- * Returns estimated payout without placing a real bet.
- */
 export async function getPayoutEstimateHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  const { market_id, side, amount } = req.query as Record<string, string>;
+
+  if (!market_id || !side || !amount) {
+    res.status(400).json({
+      error: "Validation failed",
+      code: "VALIDATION_ERROR",
+      details: { required: ["market_id", "side", "amount"] },
+    });
+    return;
+  }
+
+  if (!["FighterA", "FighterB"].includes(side)) {
+    res.status(400).json({
+      error: "Validation failed",
+      code: "VALIDATION_ERROR",
+      details: { side: "must be FighterA or FighterB" },
+    });
+    return;
+  }
+
+  const parsedAmount = parseInt(amount, 10);
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    res.status(400).json({
+      error: "Validation failed",
+      code: "VALIDATION_ERROR",
+      details: { amount: "must be a positive integer" },
+    });
+    return;
+  }
+
+  try {
+    const estimatedPayout = await betService.calculatePotentialPayout(
+      market_id,
+      side as BetSide,
+      BigInt(parsedAmount)
+    );
+    res.json({ data: { estimatedPayout: estimatedPayout.toString() } });
+  } catch (err) {
+    logger.error({ err }, "getPayoutEstimateHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 }

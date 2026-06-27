@@ -17,4 +17,8 @@
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
+    "sourceMap": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "__tests__"]
 }

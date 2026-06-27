@@ -15,6 +15,15 @@ const RPC_URL = process.env.STELLAR_RPC_URL!;
 const NETWORK = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY!;
 const DISPUTE_CONTRACT_ID = process.env.DISPUTE_CONTRACT_ID!;
+  xdr,
+} from "@stellar/stellar-sdk";
+
+const prisma = new PrismaClient();
+
+const RPC_URL = process.env.STELLAR_RPC_URL!;
+const NETWORK = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY!;
+const BOXREC_API_URL = process.env.BOXREC_API_URL!;
 
 export interface ExternalFightResult {
   matchId: string;
@@ -47,7 +56,44 @@ export async function confirmFightResult(
   oracle_result_id: string,
   admin: string
 ): Promise<void> {
-  throw new Error("Not implemented");
+  const oracleResult = await prisma.oracleResult.findUnique({
+    where: { id: oracle_result_id },
+    include: { market: true },
+  });
+  if (!oracleResult) throw new Error(`OracleResult not found: ${oracle_result_id}`);
+
+  const server = new SorobanRpc.Server(RPC_URL);
+  const keypair = Keypair.fromSecret(ADMIN_SECRET);
+  const account = await server.getAccount(keypair.publicKey());
+
+  const contract = new Contract(oracleResult.market.contractAddress);
+  const outcomeArg = xdr.ScVal.scvSymbol(oracleResult.outcome);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK,
+  })
+    .addOperation(contract.call("resolve_market", outcomeArg))
+    .setTimeout(30)
+    .build();
+
+  const prepared = await server.prepareTransaction(tx);
+  prepared.sign(keypair);
+  const sendResult = await server.sendTransaction(prepared);
+
+  if (sendResult.status === "ERROR") {
+    throw new Error(`Stellar tx failed: ${JSON.stringify(sendResult.errorResult)}`);
+  }
+
+  await prisma.oracleResult.update({
+    where: { id: oracle_result_id },
+    data: { confirmed: true },
+  });
+
+  await prisma.market.update({
+    where: { id: oracleResult.marketId },
+    data: { status: "Resolved", outcome: oracleResult.outcome, resolvedAt: new Date() },
+  });
 }
 
 /**
@@ -57,7 +103,53 @@ export async function confirmFightResult(
 export async function fetchExternalResult(
   market_id: string
 ): Promise<ExternalFightResult | null> {
-  throw new Error("Not implemented");
+  const market = await prisma.market.findUnique({ where: { id: market_id } });
+  if (!market) throw new Error(`Market not found: ${market_id}`);
+
+  const fighterA = market.fighterA as { name: string };
+  const fighterB = market.fighterB as { name: string };
+  const fightDate = market.scheduledAt.toISOString().split("T")[0];
+
+  const url = `${BOXREC_API_URL}/fights?fighterA=${encodeURIComponent(fighterA.name)}&fighterB=${encodeURIComponent(fighterB.name)}&date=${fightDate}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${process.env.ORACLE_API_KEY}` },
+    });
+  } catch (err) {
+    throw new Error(`Network error querying BoxRec: ${(err as Error).message}`);
+  }
+
+  if (res.status === 404) return null;
+
+  if (!res.ok) {
+    throw new Error(`BoxRec API error: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json() as {
+    id: string;
+    winner: string;
+    method: string;
+    round: number;
+    reportedAt: string;
+  };
+
+  const winnerMap: Record<string, ExternalFightResult["winner"]> = {
+    [fighterA.name]: "FighterA",
+    [fighterB.name]: "FighterB",
+    Draw: "Draw",
+    NoContest: "NoContest",
+  };
+
+  return {
+    matchId: data.id,
+    winner: winnerMap[data.winner] ?? "NoContest",
+    method: data.method,
+    round: data.round,
+    source: BOXREC_API_URL,
+    reportedAt: new Date(data.reportedAt),
+  };
 }
 
 /**

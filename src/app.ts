@@ -5,6 +5,7 @@ import marketRoutes from "./api/routes/market.routes";
 import betRoutes from "./api/routes/bet.routes";
 import adminRoutes from "./api/routes/admin.routes";
 import healthRoutes from "./api/routes/health.routes";
+import docsRoutes from "./api/routes/docs.routes";
 
 export function createApp(): express.Application {
   const app = express();
@@ -23,6 +24,11 @@ export function createApp(): express.Application {
   app.use("/api/markets", marketRoutes);
   app.use("/api/bets", betRoutes);
   app.use("/api/admin", adminRoutes);
+
+  // B-37: Swagger UI — dev mode only (Issue #1095)
+  if (process.env.NODE_ENV !== "production") {
+    app.use("/docs", docsRoutes);
+  }
 
   return app;
 }

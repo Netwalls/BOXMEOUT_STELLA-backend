@@ -13,9 +13,10 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "allowSyntheticDefaultImports": true,
-    "types": ["jest", "node"]
+    "types": ["jest", "node"],
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "__tests__"]
+  "include": ["src/**/*", "__tests__/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

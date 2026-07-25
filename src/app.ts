@@ -3,6 +3,7 @@ import { httpLogger } from "./logger";
 import { auditLogMiddleware } from "./api/middleware/audit-log.middleware";
 import marketRoutes from "./api/routes/market.routes";
 import betRoutes from "./api/routes/bet.routes";
+import usersRoutes from "./api/routes/users.routes";
 import adminRoutes from "./api/routes/admin.routes";
 import healthRoutes from "./api/routes/health.routes";
 
@@ -22,6 +23,7 @@ export function createApp(): express.Application {
   app.use("/", healthRoutes);
   app.use("/api/markets", marketRoutes);
   app.use("/api/bets", betRoutes);
+  app.use("/api/users", usersRoutes);
   app.use("/api/admin", adminRoutes);
 
   return app;

@@ -1,12 +1,24 @@
 import { Request, Response } from "express";
+import * as betService from "../../services/bet.service";
 
 /**
  * GET /api/bets/:address
- * Returns all bets placed by a Stellar address.
+ * Returns all bets placed by a Stellar address across all markets.
  * Supports optional query params: status, marketId.
  */
 export async function getBetsByAddressHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+  try {
+    const { address } = req.params;
+    const { marketId } = req.query;
+
+    const bets = await betService.getBetsByAddress(address, {
+      marketId: marketId as string | undefined,
+    });
+
+    res.status(200).json({ bets });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch bets", code: "INTERNAL_ERROR" });
+  }
 }
 
 /**

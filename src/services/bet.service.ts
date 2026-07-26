@@ -1,4 +1,6 @@
-import { Bet, BetSide } from "@prisma/client";
+import { Bet, BetSide, PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export interface BetFilters {
   status?: "pending" | "won" | "lost" | "claimed";
@@ -32,14 +34,43 @@ export async function getBetsByAddress(
   address: string,
   filters?: BetFilters
 ): Promise<Bet[]> {
-  throw new Error("Not implemented");
+  const where: Record<string, unknown> = { bettor: address };
+
+  if (filters?.marketId) {
+    where.marketId = filters.marketId;
+  }
+
+  const bets = await prisma.bet.findMany({
+    where,
+    orderBy: { placedAt: "desc" },
+  });
+
+  return bets;
 }
 
 /**
- * Fetches all bets for a given market.
+ * Fetches all bets for a given market, optionally filtered by outcome (side).
+ * @param market_id - The market ID to query
+ * @param outcome - Optional filter: "yes" maps to FighterA, "no" maps to FighterB
  */
-export async function getBetsByMarket(market_id: string): Promise<Bet[]> {
-  throw new Error("Not implemented");
+export async function getBetsByMarket(
+  market_id: string,
+  outcome?: "yes" | "no"
+): Promise<Bet[]> {
+  const where: Record<string, unknown> = { marketId: market_id };
+
+  if (outcome === "yes") {
+    where.side = BetSide.FighterA;
+  } else if (outcome === "no") {
+    where.side = BetSide.FighterB;
+  }
+
+  const bets = await prisma.bet.findMany({
+    where,
+    orderBy: { placedAt: "desc" },
+  });
+
+  return bets;
 }
 
 /**

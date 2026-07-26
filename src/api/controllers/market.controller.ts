@@ -33,12 +33,12 @@ export async function searchMarketsHandler(req: Request, res: Response): Promise
  */
 export async function getMarketsHandler(req: Request, res: Response): Promise<void> {
   try {
-    const { status, weightClass, page = "1", limit = "20" } = req.query as Record<string, string>;
-    const markets = await marketService.getAllMarkets(
+    const { status, weightClass, page = "1", pageSize = "20" } = req.query as Record<string, string>;
+    const result = await marketService.getAllMarkets(
       { status: status as marketService.MarketFilters["status"], weightClass },
-      { page: parseInt(page, 10), limit: parseInt(limit, 10) }
+      { page: parseInt(page, 10), pageSize: parseInt(pageSize, 10) }
     );
-    res.json({ data: markets, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+    res.json(result);
   } catch (err) {
     logger.error({ err }, "getMarketsHandler failed");
     res.status(500).json({ error: "Internal server error" });

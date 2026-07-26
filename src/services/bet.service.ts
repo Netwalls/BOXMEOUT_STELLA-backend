@@ -111,8 +111,98 @@ export async function calculatePotentialPayout(
   return payout;
 }
 
+/**
+ * Computes a portfolio summary for a given Stellar address.
+ *
+ * Parity with the contract's calculate_payout formula (claim_winnings):
+ *
+ *   winning_pool = pool_a  (if outcome === FighterA)
+ *                  pool_b  (if outcome === FighterB)
+ *   fee_amount   = total_pool * protocol_fee_bp / 10_000   (fee_bp = 200 = 2%)
+ *   net_pool     = total_pool - fee_amount
+ *   payout       = bet.amount * net_pool / winning_pool
+ *
+ * This is deliberately different from calculatePotentialPayout(), which adds
+ * the bet amount to the denominator (pre-bet estimate). Here we use the final
+ * locked pool sizes from the DB, matching what the contract will pay out.
+ *
+ * Returns a zero-value summary (never 404) for unknown addresses.
+ */
 export async function getPortfolioSummary(
   address: string
 ): Promise<PortfolioSummary> {
-  throw new Error("Not implemented");
+  const bets = await db.bet.findMany({
+    where: { bettor: address },
+    include: { market: true },
+  });
+
+  // Zero-value baseline — returned as-is for unknown addresses.
+  let totalStaked = 0n;
+  let totalWinnings = 0n;
+  let pendingClaims = 0n;
+  let activeBets = 0;
+  let completedBets = 0;
+
+  const FEE_BP = 200n; // 2% — must stay in sync with contract's protocol_fee_bp default
+
+  for (const bet of bets) {
+    const { market } = bet;
+
+    totalStaked += bet.amount;
+
+    // Count bucket based on terminal vs. in-flight market state.
+    if (
+      market.status === "Open" ||
+      market.status === "Locked" ||
+      market.status === "Disputed"
+    ) {
+      activeBets++;
+    } else {
+      // Resolved, Cancelled
+      completedBets++;
+    }
+
+    // Accumulate already-claimed winnings (stored by markBetClaimed).
+    if (bet.claimed && bet.payout !== null) {
+      totalWinnings += bet.payout;
+    }
+
+    // Compute pending claimable payout: market Resolved, bet on winning side, not yet claimed.
+    if (
+      !bet.claimed &&
+      market.status === "Resolved" &&
+      market.outcome !== null &&
+      // Only FighterA / FighterB outcomes produce winnings; Draw / NoContest → Cancelled (refund)
+      (market.outcome === "FighterA" || market.outcome === "FighterB") &&
+      (bet.side as string) === (market.outcome as string)
+    ) {
+      const winningPool =
+        market.outcome === "FighterA" ? market.poolA : market.poolB;
+
+      if (winningPool > 0n) {
+        // Mirror the contract's claim_winnings formula exactly:
+        //   payout = bet.amount * net_pool / winning_pool
+        const feeAmount = (market.totalPool * FEE_BP) / 10000n;
+        const netPool = market.totalPool - feeAmount;
+        const estimatedPayout = (bet.amount * netPool) / winningPool;
+        pendingClaims += estimatedPayout;
+      }
+    }
+  }
+
+  // ROI = (net profit / total staked) * 100
+  // Expressed as a plain JS number (percentage); 0 when nothing has been staked.
+  const roi =
+    totalStaked > 0n
+      ? Number(((totalWinnings - totalStaked) * 10000n) / totalStaked) / 100
+      : 0;
+
+  return {
+    totalStaked,
+    totalWinnings,
+    pendingClaims,
+    activeBets,
+    completedBets,
+    roi,
+  };
 }

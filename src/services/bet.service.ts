@@ -1,6 +1,5 @@
-import { Bet, BetSide, PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { Bet, BetSide } from "@prisma/client";
+import { db } from "../db";
 
 export interface BetFilters {
   status?: "pending" | "won" | "lost" | "claimed";
@@ -23,13 +22,9 @@ export interface PortfolioSummary {
   pendingClaims: bigint;
   activeBets: number;
   completedBets: number;
-  roi: number; // e.g. 12.5 = +12.5%
+  roi: number;
 }
 
-/**
- * Fetches all bets placed by a specific Stellar address.
- * Supports optional filters by status and marketId.
- */
 export async function getBetsByAddress(
   address: string,
   filters?: BetFilters
@@ -40,75 +35,82 @@ export async function getBetsByAddress(
     where.marketId = filters.marketId;
   }
 
-  const bets = await prisma.bet.findMany({
-    where,
-    orderBy: { placedAt: "desc" },
-  });
-
-  return bets;
-}
-
-/**
- * Fetches all bets for a given market, optionally filtered by outcome (side).
- * @param market_id - The market ID to query
- * @param outcome - Optional filter: "yes" maps to FighterA, "no" maps to FighterB
- */
-export async function getBetsByMarket(
-  market_id: string,
-  outcome?: "yes" | "no"
-): Promise<Bet[]> {
-  const where: Record<string, unknown> = { marketId: market_id };
-
-  if (outcome === "yes") {
-    where.side = BetSide.FighterA;
-  } else if (outcome === "no") {
-    where.side = BetSide.FighterB;
+  if (filters?.status === "claimed") {
+    where.claimed = true;
+  } else if (filters?.status === "pending") {
+    where.claimed = false;
+  } else if (filters?.status === "won" || filters?.status === "lost") {
+    const bets = await db.bet.findMany({
+      where,
+      include: { market: true },
+      orderBy: { placedAt: "desc" },
+    });
+    return bets.filter((bet) => {
+      if (!bet.market.outcome) return false;
+      const won = bet.market.outcome === bet.side;
+      return filters.status === "won" ? won : !won;
+    });
   }
 
-  const bets = await prisma.bet.findMany({
+  return db.bet.findMany({
     where,
     orderBy: { placedAt: "desc" },
   });
-
-  return bets;
 }
 
-/**
- * Persists a new bet from the indexer.
- * Must be idempotent — upsert on bet_id to handle event replays.
- */
+export async function getBetsByMarket(market_id: string): Promise<Bet[]> {
+  return db.bet.findMany({ where: { marketId: market_id } });
+}
+
 export async function recordBet(betData: CreateBetDTO): Promise<Bet> {
-  throw new Error("Not implemented");
+  const market = await db.market.findUnique({ where: { id: betData.marketId } });
+  if (!market) throw new Error(`Market not found: ${betData.marketId}`);
+
+  return db.bet.upsert({
+    where: { id: betData.id },
+    update: {},
+    create: {
+      id: betData.id,
+      marketId: betData.marketId,
+      bettor: betData.bettor,
+      side: betData.side,
+      amount: betData.amount,
+      placedAt: betData.placedAt,
+      txHash: betData.txHash,
+    },
+  });
 }
 
-/**
- * Marks a bet as claimed and stores the final payout.
- * Called when indexer detects WinningsClaimed or RefundClaimed event.
- */
 export async function markBetClaimed(
   bet_id: string,
   payout: bigint
 ): Promise<Bet> {
-  throw new Error("Not implemented");
+  return db.bet.update({
+    where: { id: bet_id },
+    data: { claimed: true, claimedAt: new Date(), payout },
+  });
 }
 
-/**
- * Computes estimated payout for a hypothetical bet given current pool sizes.
- * Formula: (amount / (pool_side + amount)) * (total_pool * (1 - fee_rate))
- * Pure calculation — does NOT write to database.
- */
 export async function calculatePotentialPayout(
   market_id: string,
   side: BetSide,
   amount: bigint
 ): Promise<bigint> {
-  throw new Error("Not implemented");
+  const market = await db.market.findUnique({ where: { id: market_id } });
+  if (!market) throw new Error(`Market not found: ${market_id}`);
+
+  const poolSide = side === "FighterA" ? market.poolA : market.poolB;
+  if (poolSide === 0n) return 0n;
+
+  const totalPool = market.totalPool;
+  const FEE_BP = 200n; // 2% = 200 basis points
+  const fee = (totalPool * FEE_BP) / 10000n;
+  const netPool = totalPool - fee;
+
+  const payout = (amount * netPool) / (poolSide + amount);
+  return payout;
 }
 
-/**
- * Returns aggregated portfolio stats for a user.
- * Includes total staked, total winnings, unclaimed payouts, and ROI.
- */
 export async function getPortfolioSummary(
   address: string
 ): Promise<PortfolioSummary> {

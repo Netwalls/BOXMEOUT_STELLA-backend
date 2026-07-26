@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import {
+  searchMarketsHandler,
   getMarketsHandler,
   getMarketByIdHandler,
   getMarketStatsHandler,
@@ -11,6 +12,7 @@ import {
   cancelMarketHandler,
   resolveDisputeByIdHandler,
 } from "../controllers/market.controller";
+import { adminAuth } from "../middleware/adminAuth";
 import { requireAdmin } from "../middleware/auth";
 
 const router = Router();
@@ -37,11 +39,18 @@ function validateWeightClass(req: Request, res: Response, next: NextFunction): v
 }
 
 // Public
+router.get("/search", searchMarketsHandler);   // must be before /:id
+router.get("/", getMarketsHandler);
 router.get("/", validateWeightClass, getMarketsHandler);
 router.get("/:id", getMarketByIdHandler);
 router.get("/:id/stats", getMarketStatsHandler);
 router.get("/:id/bets", getMarketBetsHandler);
+router.get("/:id", getMarketByIdHandler);
 
+// Admin — protected by Bearer ADMIN_API_KEY (issue #909/#910)
+router.post("/admin/markets/resolve", adminAuth, resolveMarketHandler);
+router.post("/admin/markets/dispute/resolve", adminAuth, resolveDisputeHandler);
+router.get("/admin/markets/pending", adminAuth, getPendingResolutionsHandler);
 // Admin
 router.post("/admin/markets/resolve", requireAdmin, resolveMarketHandler);
 router.post("/admin/markets/dispute/resolve", requireAdmin, resolveDisputeHandler);

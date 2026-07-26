@@ -35,6 +35,8 @@ model Market {
   contractAddress String       @unique
   fighterA        Json
   fighterB        Json
+  question        String       @default("")
+  description     String       @default("")
   scheduledAt     DateTime
   bettingEndsAt   DateTime
   createdAt       DateTime
@@ -50,6 +52,8 @@ model Market {
   bets            Bet[]
   disputes        Dispute[]
   oracleResult    OracleResult?
+  /// @db.Unsupported("tsvector")
+  tsVector        Unsupported("tsvector")?
 }
 
 model Bet {
@@ -101,4 +105,23 @@ model AdminLog {
   target    String?
   metadata  Json?
   createdAt DateTime @default(now())
+}
+
+model Oracle {
+  id        String   @id @default(uuid())
+  address   String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  userId        String
+  ipAddress     String
+  method        String
+  path          String
+  requestBody   Json?
+  statusCode    Int
+  timestamp     DateTime @default(now())
 }

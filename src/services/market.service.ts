@@ -1,8 +1,6 @@
 import { Market, MarketStatus, Outcome, PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-import { Market, MarketStatus, Outcome } from "@prisma/client";
-import { db } from "../db";
 
 export interface MarketFilters {
   status?: MarketStatus;
@@ -20,17 +18,12 @@ export interface MarketStats {
   poolA: bigint;
   poolB: bigint;
   totalVolume: bigint;
-  impliedOddsA: number; // payout multiplier: (total_pool - fee) / pool_a
-  impliedOddsB: number; // payout multiplier: (total_pool - fee) / pool_b
+  impliedOddsA: number;
+  impliedOddsB: number;
 }
 
-const PROTOCOL_FEE_RATE = 0.02; // 2% protocol fee
+const PROTOCOL_FEE_RATE = 0.02;
 
-/**
- * Calculates the implied odds (payout multiplier) for each side.
- * Formula: (total_pool - fee) / pool_side
- * Returns 0 if pool_side is zero to avoid division by zero.
- */
 export function calculateImpliedOdds(
   poolA: bigint,
   poolB: bigint
@@ -71,17 +64,11 @@ export async function getAllMarkets(
   const where: { status?: MarketStatus; weightClass?: string } = {};
   if (filters?.status) where.status = filters.status;
   if (filters?.weightClass) where.weightClass = filters.weightClass;
-  const where: Record<string, unknown> = {};
-
-  if (filters?.status) {
-    where.status = filters.status;
-  }
 
   const page = pagination?.page ?? 1;
   const limit = pagination?.limit ?? 20;
 
   return prisma.market.findMany({
-  return db.market.findMany({
     where,
     orderBy: { scheduledAt: "asc" },
     skip: (page - 1) * limit,
@@ -91,12 +78,9 @@ export async function getAllMarkets(
 
 export async function getMarketById(market_id: string): Promise<Market | null> {
   return prisma.market.findUnique({ where: { id: market_id } });
-  return db.market.findUnique({ where: { id: market_id } });
 }
 
-export async function createMarketRecord(
-  marketData: CreateMarketDTO
-): Promise<Market> {
+export async function createMarketRecord(marketData: CreateMarketDTO): Promise<Market> {
   const data = {
     contractAddress: marketData.contractAddress,
     fighterA: marketData.fighterA,
@@ -113,21 +97,6 @@ export async function createMarketRecord(
     where: { id: marketData.id },
     create: { id: marketData.id, ...data },
     update: {},
-  return db.market.upsert({
-    where: { id: marketData.id },
-    update: {},
-    create: {
-      id: marketData.id,
-      contractAddress: marketData.contractAddress,
-      fighterA: marketData.fighterA,
-      fighterB: marketData.fighterB,
-      scheduledAt: marketData.scheduledAt,
-      bettingEndsAt: marketData.bettingEndsAt,
-      createdAt: marketData.createdAt,
-      createdBy: marketData.createdBy,
-      oracleAddress: marketData.oracleAddress,
-      txHash: marketData.txHash,
-    },
   });
 }
 
@@ -173,20 +142,12 @@ export async function getMarketStats(market_id: string): Promise<MarketStats> {
   const poolB = market.poolB;
   const totalVolume = market.totalPool;
 
-  const impliedOddsA =
-    totalVolume > 0n
-      ? Number((poolA * 10000n) / totalVolume) / 100
-      : 50;
-  const impliedOddsB =
-    totalVolume > 0n
-      ? Number((poolB * 10000n) / totalVolume) / 100
-      : 50;
+  const impliedOddsA = totalVolume > 0n ? Number((poolA * 10000n) / totalVolume) / 100 : 50;
+  const impliedOddsB = totalVolume > 0n ? Number((poolB * 10000n) / totalVolume) / 100 : 50;
 
   return { totalBets, uniqueBettors, poolA, poolB, totalVolume, impliedOddsA, impliedOddsB };
 }
 
-export async function getMarketLeaderboard(
-  market_id: string
-): Promise<LeaderboardEntry[]> {
+export async function getMarketLeaderboard(market_id: string): Promise<LeaderboardEntry[]> {
   throw new Error("Not implemented");
 }

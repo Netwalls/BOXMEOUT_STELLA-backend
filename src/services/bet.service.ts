@@ -91,6 +91,22 @@ export async function markBetClaimed(
   });
 }
 
+/**
+ * Marks a bet as claimed by matching on (marketId, bettor).
+ * Used for winnings_claimed / refund_claimed events which identify
+ * the bet by market and bettor. Uses updateMany for atomicity.
+ */
+export async function markBetClaimedByMarketAndBettor(
+  marketId: string,
+  bettor: string,
+  payout: bigint
+): Promise<void> {
+  await db.bet.updateMany({
+    where: { marketId, bettor, claimed: false },
+    data: { claimed: true, claimedAt: new Date(), payout },
+  });
+}
+
 export async function calculatePotentialPayout(
   market_id: string,
   side: BetSide,

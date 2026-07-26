@@ -4,7 +4,6 @@ import { SorobanRpc } from "@stellar/stellar-sdk";
 
 import * as marketService from "./market.service";
 import * as betService from "./bet.service";
-import { markBetClaimed } from "./bet.service";
 
 const prisma = new PrismaClient();
 const logger = pino({ name: "indexer" });
@@ -137,8 +136,10 @@ export async function processLedger(ledger: LedgerData): Promise<void> {
           await handleMarketCancelledEvent(event);
           break;
         case "WinningsClaimed":
+          await handleWinningsClaimedEvent(event);
+          break;
         case "RefundClaimed":
-          await handleWinnersClaimedEvent(event);
+          await handleRefundClaimedEvent(event);
           break;
         case "MarketLocked":
           await handleMarketLockedEvent(event);
@@ -261,15 +262,35 @@ export async function handleMarketResolvedEvent(event: SorobanEvent): Promise<vo
 }
 
 /**
- * Parses WinningsClaimed or RefundClaimed event.
- * Calls bet.service.markBetClaimed() with the payout amount.
+ * Parses WinningsClaimed event.
+ * Matches the bet by (marketId, bettor) from the event body.
  *
- * Expected event.body: { bet_id, payout: string | number | bigint }
+ * Expected event.body: { market_id, bettor, payout: string | number | bigint }
  */
-export async function handleWinnersClaimedEvent(event: SorobanEvent): Promise<void> {
+export async function handleWinningsClaimedEvent(event: SorobanEvent): Promise<void> {
   const b = event.body;
-  await betService.markBetClaimed(b.bet_id as string, toBigInt(b.payout));
-  logger.info({ betId: b.bet_id, type: event.type }, "Claim processed");
+  await betService.markBetClaimedByMarketAndBettor(
+    b.market_id as string,
+    b.bettor as string,
+    toBigInt(b.payout)
+  );
+  logger.info({ marketId: b.market_id, bettor: b.bettor, type: event.type }, "WinningsClaimed processed");
+}
+
+/**
+ * Parses RefundClaimed event.
+ * Matches the bet by (marketId, bettor) from the event body.
+ *
+ * Expected event.body: { market_id, bettor, amount: string | number | bigint }
+ */
+export async function handleRefundClaimedEvent(event: SorobanEvent): Promise<void> {
+  const b = event.body;
+  await betService.markBetClaimedByMarketAndBettor(
+    b.market_id as string,
+    b.bettor as string,
+    toBigInt(b.amount)
+  );
+  logger.info({ marketId: b.market_id, bettor: b.bettor, type: event.type }, "RefundClaimed processed");
 }
 
 /**

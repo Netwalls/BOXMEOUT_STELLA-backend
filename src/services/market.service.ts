@@ -1,4 +1,6 @@
-import { Market, MarketStatus, Outcome } from "@prisma/client";
+import { Market, MarketStatus, Outcome, PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export interface MarketFilters {
   status?: MarketStatus;
@@ -128,4 +130,95 @@ export async function getMarketLeaderboard(
   market_id: string
 ): Promise<LeaderboardEntry[]> {
   throw new Error("Not implemented");
+}
+
+/**
+ * Admin resolves a market with a final outcome.
+ * Updates market status to Resolved and writes an AdminLog entry.
+ */
+export async function resolveMarket(
+  marketId: string,
+  outcome: Outcome,
+  source: string,
+  admin: string
+): Promise<Market> {
+  const market = await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: MarketStatus.Resolved,
+      outcome,
+      resolvedAt: new Date(),
+    },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "RESOLVE_MARKET",
+      actor: admin,
+      target: marketId,
+      metadata: { outcome, source },
+    },
+  });
+
+  return market;
+}
+
+/**
+ * Admin cancels a market (e.g., fight postponed, insufficient liquidity).
+ * Updates market status to Cancelled and writes an AdminLog entry.
+ */
+export async function cancelMarket(
+  marketId: string,
+  admin: string,
+  reason?: string
+): Promise<Market> {
+  const market = await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: MarketStatus.Cancelled,
+      resolvedAt: new Date(),
+    },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "CANCEL_MARKET",
+      actor: admin,
+      target: marketId,
+      metadata: reason ? { reason } : undefined,
+    },
+  });
+
+  return market;
+}
+
+/**
+ * Admin resolves a disputed market with an override outcome.
+ * Writes an AdminLog entry recording the resolution.
+ */
+export async function resolveMarketDispute(
+  marketId: string,
+  overrideOutcome: Outcome,
+  admin: string,
+  resolution?: string
+): Promise<Market> {
+  const market = await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: MarketStatus.Resolved,
+      outcome: overrideOutcome,
+      resolvedAt: new Date(),
+    },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "RESOLVE_DISPUTE",
+      actor: admin,
+      target: marketId,
+      metadata: { overrideOutcome, resolution },
+    },
+  });
+
+  return market;
 }

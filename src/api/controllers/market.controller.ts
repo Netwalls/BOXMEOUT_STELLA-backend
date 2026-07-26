@@ -5,6 +5,7 @@ import { z } from "zod";
 import * as marketService from "../../services/market.service";
 import { searchMarkets } from "../../repositories/market.repository";
 import * as oracleService from "../../services/oracle.service";
+import { subscribeToMarket, MarketEventPayload } from "../../events/marketEvents";
 
 const prisma = new PrismaClient();
 
@@ -81,6 +82,38 @@ export async function getMarketBetsHandler(req: Request, res: Response): Promise
     logger.error({ err }, "getMarketBetsHandler failed");
     res.status(500).json({ error: "Internal server error" });
   }
+}
+
+/**
+ * GET /api/markets/:id/events (issue #1094)
+ * Server-Sent Events stream of live bet_placed/market_resolved events for a
+ * single market. Backed directly by the same publishMarketEvent() calls the
+ * indexer's ledger event handlers make — no separate polling mechanism.
+ */
+export function subscribeMarketEventsHandler(req: Request, res: Response): void {
+  const { id: marketId } = req.params;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write(":ok\n\n");
+
+  const unsubscribe = subscribeToMarket(marketId, (payload: MarketEventPayload) => {
+    res.write(`event: ${payload.type}\n`);
+    res.write(`data: ${JSON.stringify(payload.data)}\n\n`);
+  });
+
+  const heartbeat = setInterval(() => {
+    res.write(":heartbeat\n\n");
+  }, 30_000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
 }
 
 /**

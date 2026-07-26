@@ -11,6 +11,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { logger } from "../logger";
+import { ContractError } from "../errors";
 
 const prisma = new PrismaClient();
 const RPC_URL = process.env.STELLAR_RPC_URL!;
@@ -75,7 +76,10 @@ export async function confirmFightResult(
   const sendResult = await server.sendTransaction(prepared);
 
   if (sendResult.status === "ERROR") {
-    throw new Error(`Stellar tx failed: ${JSON.stringify(sendResult.errorResult)}`);
+    throw new ContractError(
+      `Stellar tx failed: ${JSON.stringify(sendResult.errorResult)}`,
+      sendResult.errorResult,
+    );
   }
 
   await prisma.oracleResult.update({

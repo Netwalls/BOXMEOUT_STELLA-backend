@@ -5,6 +5,7 @@ import { SorobanRpc } from "@stellar/stellar-sdk";
 import * as marketService from "./market.service";
 import * as betService from "./bet.service";
 import { markBetClaimed } from "./bet.service";
+import { publishMarketEvent } from "../events/marketEvents";
 
 const prisma = new PrismaClient();
 const logger = pino({ name: "indexer" });
@@ -231,6 +232,15 @@ export async function handleBetPlacedEvent(event: SorobanEvent): Promise<void> {
     toBigInt(b.pool_b)
   );
 
+  publishMarketEvent(b.market_id as string, "bet_placed", {
+    betId: b.bet_id,
+    bettor: b.bettor,
+    side: b.side,
+    amount: String(toBigInt(b.amount)),
+    poolA: String(toBigInt(b.pool_a)),
+    poolB: String(toBigInt(b.pool_b)),
+  });
+
   logger.info(
     { betId: b.bet_id, marketId: b.market_id, ledger: event.ledger },
     "BetPlaced processed"
@@ -254,6 +264,11 @@ export async function handleMarketResolvedEvent(event: SorobanEvent): Promise<vo
     "Resolved",
     b.outcome as "FighterA" | "FighterB" | "Draw" | "NoContest"
   );
+
+  publishMarketEvent(b.market_id as string, "market_resolved", {
+    outcome: b.outcome,
+  });
+
   logger.info({ marketId: b.market_id, outcome: b.outcome }, "MarketResolved processed");
 }
 

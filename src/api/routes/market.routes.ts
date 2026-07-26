@@ -8,6 +8,7 @@ import {
   resolveMarketHandler,
   resolveDisputeHandler,
   getPendingResolutionsHandler,
+  subscribeMarketEventsHandler,
 } from "../controllers/market.controller";
 import { adminAuth } from "../middleware/adminAuth";
 import { requireAdmin } from "../middleware/auth";
@@ -42,6 +43,7 @@ router.get("/", validateWeightClass, getMarketsHandler);
 router.get("/:id", getMarketByIdHandler);
 router.get("/:id/stats", getMarketStatsHandler);
 router.get("/:id/bets", getMarketBetsHandler);
+router.get("/:id/events", subscribeMarketEventsHandler);
 router.get("/:id", getMarketByIdHandler);
 
 // Admin — protected by Bearer ADMIN_API_KEY (issue #909/#910)

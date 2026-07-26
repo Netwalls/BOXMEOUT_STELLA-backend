@@ -125,3 +125,16 @@ model AuditLog {
   statusCode    Int
   timestamp     DateTime @default(now())
 }
+
+model EventLog {
+  id          String   @id @default(uuid())
+  eventType   String
+  contractId  String
+  ledger      Int
+  txHash      String
+  body        Json
+  processedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([txHash, eventType])
+}

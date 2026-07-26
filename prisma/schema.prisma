@@ -42,6 +42,8 @@ model Market {
   createdAt       DateTime
   createdBy       String
   status          MarketStatus @default(Open)
+
+  @@index([createdBy])
   outcome         Outcome?
   resolvedAt      DateTime?
   poolA           BigInt       @default(0)

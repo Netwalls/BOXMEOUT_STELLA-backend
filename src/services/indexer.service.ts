@@ -309,6 +309,9 @@ export async function handleMarketLockedEvent(event: SorobanEvent): Promise<void
  *
  * DisputeRaised body:   { market_id, raised_by, reason }
  * DisputeResolved body: { market_id, resolution }
+ *
+ * On dispute raised: sets market status to Disputed and stores the dispute
+ * reason for admin review via the Dispute table.
  */
 export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
   const b = event.body;
@@ -333,6 +336,17 @@ export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
     await marketService.updateMarketStatus(b.market_id as string, "Resolved");
   }
   logger.info({ marketId: b.market_id, type: event.type }, "Dispute event processed");
+}
+
+/**
+ * Parses MarketCancelled event and sets market status to Cancelled.
+ *
+ * Expected event.body: { market_id, reason: string }
+ */
+export async function handleMarketCancelledEvent(event: SorobanEvent): Promise<void> {
+  const b = event.body;
+  await marketService.updateMarketStatus(b.market_id as string, "Cancelled");
+  logger.info({ marketId: b.market_id, reason: b.reason }, "MarketCancelled processed");
 }
 
 

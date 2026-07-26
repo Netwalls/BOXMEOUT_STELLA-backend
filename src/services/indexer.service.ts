@@ -29,30 +29,39 @@ export interface LedgerData {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Issue 1 — IndexerState: getLastIndexedLedger / saveLastIndexedLedger
+// startIndexer: Subscribe to Soroban RPC events for all three contracts
 // ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Bootstraps the blockchain event listener.
- * Connects to Stellar Horizon/Soroban RPC from env config.
- * Registers all event handlers and polls from last indexed ledger.
+ * Connects to Stellar Soroban RPC from env config.
+ * Subscribes to ALL contract events — the event handlers (switch/case)
+ * filter what's relevant. This ensures Market contract events are never
+ * missed, even across restarts (no in-memory registry to lose).
+ * Writes raw events to EventLog before any downstream processing.
+ * Reconnects with exponential backoff on RPC disconnect.
  * Long-lived process — run as a background worker.
  */
 export async function startIndexer(): Promise<void> {
   const rpcUrl = process.env.STELLAR_RPC_URL!;
-  const contractId = process.env.MARKET_FACTORY_CONTRACT_ID!;
   const server = new SorobanRpc.Server(rpcUrl);
 
   let backoff = 1000; // ms
   const MAX_BACKOFF = 30_000;
 
   let fromLedger = await getLastIndexedLedger();
-  console.log(`[indexer] Starting from ledger ${fromLedger}`);
+  logger.info({ fromLedger }, "Indexer starting");
 
   while (true) {
     try {
+      logger.debug({ fromLedger }, "Polling for events");
+
+      // Subscribe to ALL events — no contractIds filter.
+      // The processLedger switch/case routes known event types and
+      // logs warnings for unknowns. This avoids losing events from
+      // dynamically deployed Market contracts on restart.
       const eventsResponse = await server.getEvents({
         startLedger: fromLedger + 1,
-        filters: [{ contractIds: [contractId] }],
         limit: 100,
       });
 
@@ -71,7 +80,15 @@ export async function startIndexer(): Promise<void> {
       }
 
       for (const [ledgerSeq, events] of [...byLedger.entries()].sort((a, b) => a[0] - b[0])) {
+        // Step 1: Persist raw events to EventLog BEFORE downstream processing
+        await persistRawEvents(events);
+
+        // Step 2: Process events (route to handlers)
         await processLedger({ sequence: ledgerSeq, closedAt: events[0].ledgerClosedAt, events });
+
+        // Step 3: Mark events as processed
+        await markEventsProcessed(events);
+
         await saveLastIndexedLedger(ledgerSeq);
         fromLedger = ledgerSeq;
       }
@@ -79,7 +96,7 @@ export async function startIndexer(): Promise<void> {
       backoff = 1000;
       await sleep(5_000);
     } catch (err) {
-      console.error(`[indexer] Connection error (retrying in ${backoff}ms):`, err);
+      logger.error({ err, backoff }, "Indexer connection error — retrying with backoff");
       await sleep(backoff);
       backoff = Math.min(backoff * 2, MAX_BACKOFF);
     }
@@ -89,6 +106,59 @@ export async function startIndexer(): Promise<void> {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EventLog persistence (idempotent ingestion)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Writes raw Soroban events to the EventLog table before any downstream processing.
+ * Uses upsert semantics — duplicate (txHash, eventType) pairs are silently ignored,
+ * guaranteeing idempotent ingestion across restarts.
+ */
+async function persistRawEvents(events: SorobanEvent[]): Promise<void> {
+  for (const event of events) {
+    await prisma.eventLog.upsert({
+      where: {
+        txHash_eventType: {
+          txHash: event.txHash,
+          eventType: event.type,
+        },
+      },
+      update: {}, // no-op on conflict — preserve original record
+      create: {
+        txHash: event.txHash,
+        eventType: event.type,
+        contractId: event.contractId,
+        ledger: event.ledger,
+        ledgerClosedAt: new Date(event.ledgerClosedAt),
+        body: event.body,
+      },
+    });
+  }
+}
+
+/**
+ * Marks a batch of events as processed by setting their processedAt timestamp.
+ * Only updates events that are still null (unprocessed).
+ */
+async function markEventsProcessed(events: SorobanEvent[]): Promise<void> {
+  const now = new Date();
+  for (const event of events) {
+    await prisma.eventLog.updateMany({
+      where: {
+        txHash: event.txHash,
+        eventType: event.type,
+        processedAt: null,
+      },
+      data: { processedAt: now },
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IndexerState helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Reads the last successfully processed ledger from IndexerState table.
@@ -112,7 +182,7 @@ export async function saveLastIndexedLedger(ledger: number): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Issue 2 — processLedger: route events + DB transaction
+// processLedger: route events + DB transaction
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -156,11 +226,12 @@ export async function processLedger(ledger: LedgerData): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Issue 3 — handleMarketCreatedEvent
+// handleMarketCreatedEvent
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Parses MarketCreated event body and calls market.service.createMarketRecord().
+ * Also registers the new Market contract address for future event subscriptions.
  *
  * Expected event.body shape (from Soroban contract):
  * {
@@ -194,7 +265,7 @@ export async function handleMarketCreatedEvent(event: SorobanEvent): Promise<voi
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Issue 4 — handleBetPlacedEvent
+// handleBetPlacedEvent
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -238,7 +309,7 @@ export async function handleBetPlacedEvent(event: SorobanEvent): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Remaining handlers (stubs for completeness — not part of the four issues)
+// Remaining handlers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -309,7 +380,6 @@ export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
   }
   logger.info({ marketId: b.market_id, type: event.type }, "Dispute event processed");
 }
-
 
 /**
  * Replays a ledger range to catch events missed during downtime.

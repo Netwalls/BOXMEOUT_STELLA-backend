@@ -1,6 +1,3 @@
-import { Market, MarketStatus, Outcome, PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
 import { Market, MarketStatus, Outcome } from "@prisma/client";
 import { db } from "../db";
 
@@ -68,9 +65,6 @@ export async function getAllMarkets(
   filters?: MarketFilters,
   pagination?: Pagination
 ): Promise<Market[]> {
-  const where: { status?: MarketStatus; weightClass?: string } = {};
-  if (filters?.status) where.status = filters.status;
-  if (filters?.weightClass) where.weightClass = filters.weightClass;
   const where: Record<string, unknown> = {};
 
   if (filters?.status) {
@@ -80,7 +74,6 @@ export async function getAllMarkets(
   const page = pagination?.page ?? 1;
   const limit = pagination?.limit ?? 20;
 
-  return prisma.market.findMany({
   return db.market.findMany({
     where,
     orderBy: { scheduledAt: "asc" },
@@ -90,29 +83,12 @@ export async function getAllMarkets(
 }
 
 export async function getMarketById(market_id: string): Promise<Market | null> {
-  return prisma.market.findUnique({ where: { id: market_id } });
   return db.market.findUnique({ where: { id: market_id } });
 }
 
 export async function createMarketRecord(
   marketData: CreateMarketDTO
 ): Promise<Market> {
-  const data = {
-    contractAddress: marketData.contractAddress,
-    fighterA: marketData.fighterA,
-    fighterB: marketData.fighterB,
-    scheduledAt: marketData.scheduledAt,
-    bettingEndsAt: marketData.bettingEndsAt,
-    createdAt: marketData.createdAt,
-    createdBy: marketData.createdBy,
-    oracleAddress: marketData.oracleAddress,
-    txHash: marketData.txHash,
-  };
-
-  return prisma.market.upsert({
-    where: { id: marketData.id },
-    create: { id: marketData.id, ...data },
-    update: {},
   return db.market.upsert({
     where: { id: marketData.id },
     update: {},
@@ -136,7 +112,7 @@ export async function updateMarketStatus(
   status: MarketStatus,
   outcome?: Outcome
 ): Promise<Market> {
-  return prisma.market.update({
+  return db.market.update({
     where: { id: market_id },
     data: {
       status,
@@ -151,14 +127,14 @@ export async function updateMarketPools(
   pool_a: bigint,
   pool_b: bigint
 ): Promise<void> {
-  await prisma.market.update({
+  await db.market.update({
     where: { id: market_id },
     data: { poolA: pool_a, poolB: pool_b, totalPool: pool_a + pool_b },
   });
 }
 
 export async function getMarketStats(market_id: string): Promise<MarketStats> {
-  const market = await prisma.market.findUnique({
+  const market = await db.market.findUnique({
     where: { id: market_id },
     include: { bets: true },
   });
@@ -168,7 +144,7 @@ export async function getMarketStats(market_id: string): Promise<MarketStats> {
   }
 
   const totalBets = market.bets.length;
-  const uniqueBettors = new Set(market.bets.map((b: any) => b.bettor)).size;
+  const uniqueBettors = new Set(market.bets.map((b) => b.bettor)).size;
   const poolA = market.poolA;
   const poolB = market.poolB;
   const totalVolume = market.totalPool;

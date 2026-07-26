@@ -7,6 +7,9 @@ import {
   resolveMarketHandler,
   resolveDisputeHandler,
   getPendingResolutionsHandler,
+  resolveMarketByIdHandler,
+  cancelMarketHandler,
+  resolveDisputeByIdHandler,
 } from "../controllers/market.controller";
 import { requireAdmin } from "../middleware/auth";
 
@@ -43,5 +46,8 @@ router.get("/:id/bets", getMarketBetsHandler);
 router.post("/admin/markets/resolve", requireAdmin, resolveMarketHandler);
 router.post("/admin/markets/dispute/resolve", requireAdmin, resolveDisputeHandler);
 router.get("/admin/markets/pending", requireAdmin, getPendingResolutionsHandler);
+router.post("/admin/markets/:marketId/resolve", requireAdmin, resolveMarketByIdHandler);
+router.post("/admin/markets/:marketId/cancel", requireAdmin, cancelMarketHandler);
+router.post("/admin/markets/:marketId/dispute-resolve", requireAdmin, resolveDisputeByIdHandler);
 
 export default router;

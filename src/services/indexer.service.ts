@@ -133,6 +133,9 @@ export async function processLedger(ledger: LedgerData): Promise<void> {
         case "MarketResolved":
           await handleMarketResolvedEvent(event);
           break;
+        case "MarketCancelled":
+          await handleMarketCancelledEvent(event);
+          break;
         case "WinningsClaimed":
         case "RefundClaimed":
           await handleWinnersClaimedEvent(event);
@@ -297,6 +300,7 @@ export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
         raisedAt: toDate(event.ledgerClosedAt),
       },
     });
+    await marketService.updateMarketStatus(b.market_id as string, "Disputed");
   } else if (event.type === "DisputeResolved") {
     await prisma.dispute.updateMany({
       where: { marketId: b.market_id as string, resolvedAt: null },

@@ -12,19 +12,23 @@ const payoutEstimateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {
-    const retryAfter = Math.ceil(60);
     res.status(429).json({
       error: "Too many requests",
       code: "RATE_LIMITED",
-      retryAfter,
+      retryAfter: 60,
     });
   },
 });
 
 const router = Router();
 
+// GET /api/bets/payout-estimate  — must come before /:address
 router.get("/payout-estimate", payoutEstimateLimiter, getPayoutEstimateHandler);
+
+// GET /api/bets/:address/portfolio
 router.get("/:address/portfolio", getPortfolioHandler);
+
+// GET /api/bets/:address
 router.get("/:address", getBetsByAddressHandler);
 
 export default router;

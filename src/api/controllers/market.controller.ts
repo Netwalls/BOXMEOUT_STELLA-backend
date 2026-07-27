@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from "express";
-import { PrismaClient, MarketStatus } from "@prisma/client";
-import { logger } from "../../logger";
+import { MarketStatus } from "@prisma/client";
 import { z } from "zod";
+import { logger } from "../../logger";
 import * as marketService from "../../services/market.service";
 import { searchMarkets } from "../../repositories/market.repository";
 import * as oracleService from "../../services/oracle.service";
+import { db } from "../../db";
 
-const prisma = new PrismaClient();
+// ─── Validation schemas ───────────────────────────────────────────────────────
 
 const marketsQuerySchema = z.object({
   status: z.nativeEnum(MarketStatus).optional(),
@@ -15,14 +16,36 @@ const marketsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+const marketBetsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
+const createMarketSchema = z.object({
+  id: z.string().min(1),
+  contractAddress: z.string().min(1),
+  fighterA: z.record(z.unknown()),
+  fighterB: z.record(z.unknown()),
+  scheduledAt: z.string().datetime({ message: "scheduledAt must be a valid ISO 8601 datetime" }),
+  bettingEndsAt: z.string().datetime({ message: "bettingEndsAt must be a valid ISO 8601 datetime" }),
+  createdBy: z.string().min(1),
+  oracleAddress: z.string().min(1),
+  txHash: z.string().optional(),
+});
+
+// ─── Handlers ─────────────────────────────────────────────────────────────────
+
 /**
  * GET /api/markets/search?q=&page=&limit=
  * Full-text search across question + description. Returns paginated { data, total }.
  */
 export async function searchMarketsHandler(req: Request, res: Response): Promise<void> {
   const q = String(req.query.q ?? "").trim();
-  if (!q) { res.status(400).json({ error: "q is required" }); return; }
-  const page  = Math.max(1, parseInt(String(req.query.page  ?? "1"),  10) || 1);
+  if (!q) {
+    res.status(400).json({ error: "q is required", code: "VALIDATION_ERROR" });
+    return;
+  }
+  const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10) || 20));
   const result = await searchMarkets(q, page, limit);
   res.json(result);
@@ -30,21 +53,35 @@ export async function searchMarketsHandler(req: Request, res: Response): Promise
 
 /**
  * GET /api/markets
+ * Optional query params: status, weightClass, page, limit
  */
 export async function getMarketsHandler(req: Request, res: Response): Promise<void> {
+  const parsed = marketsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "Validation failed",
+      code: "VALIDATION_ERROR",
+      details: parsed.error.flatten(),
+    });
+    return;
+  }
+
   try {
-    const { status, weightClass, page = "1", pageSize = "20" } = req.query as Record<string, string>;
-    const result = await marketService.getAllMarkets(
-      { status: status as marketService.MarketFilters["status"], weightClass },
-      { page: parseInt(page, 10), pageSize: parseInt(pageSize, 10) }
+    const { status, weightClass, page, limit } = parsed.data;
+    const markets = await marketService.getAllMarkets(
+      { status, weightClass },
+      { page, limit }
     );
-    res.json(result);
+    res.json({ data: markets, page, limit });
   } catch (err) {
     logger.error({ err }, "getMarketsHandler failed");
     res.status(500).json({ error: "Internal server error" });
   }
 }
 
+/**
+ * GET /api/markets/:id
+ */
 export async function getMarketByIdHandler(req: Request, res: Response): Promise<void> {
   try {
     const market = await marketService.getMarketById(req.params.id);
@@ -59,6 +96,45 @@ export async function getMarketByIdHandler(req: Request, res: Response): Promise
   }
 }
 
+/**
+ * POST /api/markets
+ * Creates a new market record. Body validated via zod.
+ */
+export async function createMarketHandler(req: Request, res: Response): Promise<void> {
+  const parsed = createMarketSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "Validation failed",
+      code: "VALIDATION_ERROR",
+      details: parsed.error.flatten(),
+    });
+    return;
+  }
+
+  try {
+    const data = parsed.data;
+    const market = await marketService.createMarketRecord({
+      id: data.id,
+      contractAddress: data.contractAddress,
+      fighterA: data.fighterA,
+      fighterB: data.fighterB,
+      scheduledAt: new Date(data.scheduledAt),
+      bettingEndsAt: new Date(data.bettingEndsAt),
+      createdAt: new Date(),
+      createdBy: data.createdBy,
+      oracleAddress: data.oracleAddress,
+      txHash: data.txHash,
+    });
+    res.status(201).json({ data: market });
+  } catch (err) {
+    logger.error({ err }, "createMarketHandler failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+/**
+ * GET /api/markets/:id/stats
+ */
 export async function getMarketStatsHandler(req: Request, res: Response): Promise<void> {
   try {
     const stats = await marketService.getMarketStats(req.params.id);
@@ -71,12 +147,23 @@ export async function getMarketStatsHandler(req: Request, res: Response): Promis
 
 /**
  * GET /api/markets/:id/bets
+ * Returns leaderboard/bets for a market with pagination.
  */
 export async function getMarketBetsHandler(req: Request, res: Response): Promise<void> {
+  const parsed = marketBetsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "Validation failed",
+      code: "VALIDATION_ERROR",
+      details: parsed.error.flatten(),
+    });
+    return;
+  }
+
   try {
-    const { page = "1", limit = "20" } = req.query as Record<string, string>;
-    const bets = await marketService.getMarketLeaderboard(req.params.id);
-    res.json({ data: bets, page: parseInt(page, 10), limit: parseInt(limit, 10) });
+    const { page, limit } = parsed.data;
+    const bets = await marketService.getMarketLeaderboard(req.params.id, { page, limit });
+    res.json({ data: bets, page, limit });
   } catch (err) {
     logger.error({ err }, "getMarketBetsHandler failed");
     res.status(500).json({ error: "Internal server error" });
@@ -84,12 +171,15 @@ export async function getMarketBetsHandler(req: Request, res: Response): Promise
 }
 
 /**
- * POST /api/admin/markets/resolve (issue #909)
+ * POST /api/admin/markets/resolve
  * Body: { oracle_result_id: number }
- * Admin-protected (adminAuth middleware). Confirms an oracle result and
- * triggers on-chain market resolution. Returns 200 { status: 'ok' }.
+ * Admin-protected. Confirms an oracle result and triggers on-chain market resolution.
  */
-export async function resolveMarketHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function resolveMarketHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const { oracle_result_id } = req.body;
 
@@ -100,7 +190,10 @@ export async function resolveMarketHandler(req: Request, res: Response, next: Ne
 
     const id = Number(oracle_result_id);
     if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({ error: "oracle_result_id must be a positive integer", code: "VALIDATION_ERROR" });
+      res.status(400).json({
+        error: "oracle_result_id must be a positive integer",
+        code: "VALIDATION_ERROR",
+      });
       return;
     }
 
@@ -124,6 +217,80 @@ export async function resolveDisputeHandler(req: Request, res: Response): Promis
 }
 
 /**
+ * POST /api/admin/markets/:marketId/resolve
+ * Body: { outcome, source }
+ * Admin-protected. Resolves a market by ID and writes an audit log entry.
+ */
+export async function resolveMarketByIdHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { marketId } = req.params;
+    const { outcome, source } = req.body;
+
+    if (!outcome || !VALID_OUTCOMES.includes(outcome)) {
+      res.status(400).json({
+        error: "Invalid or missing outcome",
+        code: "INVALID_OUTCOME",
+        allowed: VALID_OUTCOMES,
+      });
+      return;
+    }
+
+    if (!source) {
+      res.status(400).json({ error: "Missing source", code: "MISSING_SOURCE" });
+      return;
+    }
+
+    const market = await marketService.resolveMarket(marketId, outcome, source, "admin");
+    res.status(200).json({ market, message: "Market resolved successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to resolve market", code: "INTERNAL_ERROR" });
+  }
+}
+
+/**
+ * POST /api/admin/markets/:marketId/cancel
+ * Body: { reason? }
+ * Admin-protected. Cancels a market and writes an audit log entry.
+ */
+export async function cancelMarketHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { marketId } = req.params;
+    const { reason } = req.body;
+
+    const market = await marketService.cancelMarket(marketId, "admin", reason);
+    res.status(200).json({ market, message: "Market cancelled" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to cancel market", code: "INTERNAL_ERROR" });
+  }
+}
+
+/**
+ * POST /api/admin/markets/:marketId/dispute-resolve
+ * Body: { overrideOutcome, resolution? }
+ * Admin-protected. Resolves a disputed market with an override and writes an audit log entry.
+ */
+export async function resolveDisputeByIdHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { marketId } = req.params;
+    const { overrideOutcome, resolution } = req.body;
+
+    if (!overrideOutcome || !VALID_OUTCOMES.includes(overrideOutcome)) {
+      res.status(400).json({
+        error: "Invalid or missing overrideOutcome",
+        code: "INVALID_OUTCOME",
+        allowed: VALID_OUTCOMES,
+      });
+      return;
+    }
+
+    const market = await marketService.resolveMarketDispute(marketId, overrideOutcome, "admin", resolution);
+    res.status(200).json({ market, message: "Dispute resolved" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to resolve dispute", code: "INTERNAL_ERROR" });
+  }
+}
+
+/**
  * GET /api/admin/markets/pending
  */
 export async function getPendingResolutionsHandler(req: Request, res: Response): Promise<void> {
@@ -141,7 +308,7 @@ export async function getPendingResolutionsHandler(req: Request, res: Response):
  */
 export async function healthCheckHandler(req: Request, res: Response): Promise<void> {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await db.$queryRaw`SELECT 1`;
     res.status(200).json({ status: "ok", db: "connected" });
   } catch {
     res.status(503).json({ status: "degraded", db: "disconnected" });

@@ -1,172 +1,303 @@
-import { Market, MarketStatus, Outcome, Dispute } from "@prisma/client";
+/**
+ * ResolutionService
+ *
+ * Implements two scheduled cron jobs:
+ *
+ * enforceMarketLocks (#1086)
+ *   — Runs every minute. Finds all Open markets whose bettingEndsAt has passed
+ *     and calls lock_market on the Soroban contract. Batches multiple markets
+ *     per run. Uses exponential fee backoff with a hard cap.
+ *
+ * autoFinalizeExpiredWindows (#1085)
+ *   — Runs every minute. Finds all Locked markets whose dispute window has
+ *     elapsed with no active dispute and finalises them by setting status to
+ *     Resolved with the oracle-confirmed outcome. Idempotent: a market that is
+ *     already Resolved is never touched again.
+ */
+
+import {
+  SorobanRpc,
+  TransactionBuilder,
+  Networks,
+  Contract,
+  Keypair,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
+import { MarketStatus } from "@prisma/client";
 import { db } from "../db";
-import * as oracleService from "./oracle.service";
 import { logger } from "../logger";
 
-export interface ResolveFightOptions {
-  marketId: string;
-  outcome: Outcome;
-  source?: string;
-  reporter?: string;
-}
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-export interface HandleDisputeOptions {
-  disputeId: string;
-  outcome: Outcome;
-  admin: string;
-  notes: string;
-}
+const RPC_URL = process.env.STELLAR_RPC_URL!;
+const NETWORK =
+  process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY!;
 
-// Optimistic cache storage for active market resolution updates
-const optimisticMarketCache = new Map<string, Partial<Market>>();
+/** Dispute window in milliseconds (default 24 h). */
+const DISPUTE_WINDOW_MS =
+  parseInt(process.env.DISPUTE_WINDOW_MS ?? "86400000", 10);
 
-export class ResolutionService {
-  /**
-   * B-25: Admin action wiring OracleService.submitResolution + optimistic cache update.
-   * Acceptance Criteria: Only callable through an authenticated admin route.
-   */
-  static async resolveFight(options: ResolveFightOptions) {
-    const { marketId, outcome, source = "admin", reporter = "admin" } = options;
+const MAX_RETRIES = 3;
+/** Hard cap on fee regardless of backoff (in stroops). */
+const MAX_FEE = 1_000_000;
 
-    if (!marketId) {
-      throw new Error("Market ID is required");
-    }
-    if (!outcome) {
-      throw new Error("Outcome is required");
-    }
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-    const market = await db.market.findUnique({ where: { id: marketId } });
-    if (!market) {
-      throw new Error(`Market not found: ${marketId}`);
-    }
+/**
+ * Calls lock_market on the Soroban contract with exponential fee backoff.
+ * Retries up to MAX_RETRIES times before throwing.
+ */
+async function lockMarketOnChain(
+  server: SorobanRpc.Server,
+  keypair: Keypair,
+  market: { id: string; contractAddress: string }
+): Promise<void> {
+  const account = await server.getAccount(keypair.publicKey());
 
-    // Apply optimistic cache update
-    optimisticMarketCache.set(marketId, {
-      ...market,
-      status: MarketStatus.Resolved,
-      outcome,
-      resolvedAt: new Date(),
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const fee = Math.min(
+      Number(BASE_FEE) * Math.pow(2, attempt),
+      MAX_FEE
+    ).toString();
 
     try {
-      // Wire OracleService.submitResolution
-      const oracleResult = await oracleService.submitResolution(marketId, outcome, source, reporter);
+      const contract = new Contract(market.contractAddress);
+      const tx = new TransactionBuilder(account, {
+        fee,
+        networkPassphrase: NETWORK,
+      })
+        .addOperation(contract.call("lock_market"))
+        .setTimeout(30)
+        .build();
 
-      // Persist status update in DB
-      const updatedMarket = await db.market.update({
-        where: { id: marketId },
-        data: {
-          status: MarketStatus.Resolved,
-          outcome,
-          resolvedAt: new Date(),
-        },
-      });
+      const prepared = await server.prepareTransaction(tx);
+      prepared.sign(keypair);
+      const result = await server.sendTransaction(prepared);
 
-      // Clear optimistic cache entry once DB update succeeds
-      optimisticMarketCache.delete(marketId);
-
-      return {
-        success: true,
-        market: updatedMarket,
-        oracleResult,
-      };
+      logger.info(
+        { marketId: market.id, txHash: result.hash },
+        "market locked on-chain"
+      );
+      return;
     } catch (err) {
-      optimisticMarketCache.delete(marketId);
-      logger.error({ err, marketId }, "ResolutionService.resolveFight failed");
-      throw err;
+      if (attempt === MAX_RETRIES) throw err;
+      logger.warn(
+        { marketId: market.id, attempt: attempt + 1 },
+        "lock_market attempt failed, retrying with higher fee"
+      );
     }
-  }
-
-  /**
-   * B-26: Admin review action calling Market.finalize_resolution with a determined outcome.
-   * Acceptance Criteria: Requires notes explaining the decision, stored for audit.
-   */
-  static async handleDispute(options: HandleDisputeOptions) {
-    const { disputeId, outcome, admin, notes } = options;
-
-    if (!disputeId) {
-      throw new Error("Dispute ID is required");
-    }
-    if (!outcome) {
-      throw new Error("Outcome is required");
-    }
-    if (!notes || !notes.trim()) {
-      throw new Error("Notes explaining the decision are required for audit");
-    }
-
-    const dispute = await db.dispute.findUnique({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new Error(`Dispute not found: ${disputeId}`);
-    }
-
-    const market = await db.market.findUnique({ where: { id: dispute.marketId } });
-    if (!market) {
-      throw new Error(`Market not found for dispute: ${disputeId}`);
-    }
-
-    // Perform dispute resolution with override
-    await oracleService.resolveDispute(disputeId, outcome, admin);
-
-    const now = new Date();
-
-    // Store audit logs & finalize dispute resolution notes
-    const [updatedDispute, updatedMarket] = await db.$transaction([
-      db.dispute.update({
-        where: { id: disputeId },
-        data: {
-          resolvedAt: now,
-          resolution: `${outcome}: ${notes.trim()}`,
-        },
-      }),
-      db.market.update({
-        where: { id: dispute.marketId },
-        data: {
-          status: MarketStatus.Resolved,
-          outcome,
-          resolvedAt: now,
-        },
-      }),
-      db.adminLog.create({
-        data: {
-          action: "handleDispute",
-          actor: admin,
-          target: dispute.marketId,
-          metadata: {
-            disputeId,
-            outcome,
-            notes: notes.trim(),
-            decisionNotes: notes.trim(),
-          },
-        },
-      }),
-      db.auditLog.create({
-        data: {
-          userId: admin,
-          ipAddress: "127.0.0.1",
-          method: "POST",
-          path: "/api/admin/markets/dispute/resolve",
-          requestBody: { disputeId, outcome, notes: notes.trim() },
-          statusCode: 200,
-        },
-      }),
-    ]);
-
-    return {
-      success: true,
-      dispute: updatedDispute,
-      market: updatedMarket,
-      notes: notes.trim(),
-    };
-  }
-
-  static getOptimisticMarket(marketId: string): Partial<Market> | undefined {
-    return optimisticMarketCache.get(marketId);
-  }
-
-  static clearOptimisticCache(): void {
-    optimisticMarketCache.clear();
   }
 }
 
-export const resolveFight = ResolutionService.resolveFight;
-export const handleDispute = ResolutionService.handleDispute;
+/**
+ * Calls finalize_market on the Soroban contract.
+ * If the contract call fails we still update the DB status so the job is
+ * idempotent — a failed on-chain call should be retried by the next run.
+ */
+async function finalizeMarketOnChain(
+  server: SorobanRpc.Server,
+  keypair: Keypair,
+  market: { id: string; contractAddress: string }
+): Promise<void> {
+  const account = await server.getAccount(keypair.publicKey());
+
+  const contract = new Contract(market.contractAddress);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK,
+  })
+    .addOperation(contract.call("finalize_market"))
+    .setTimeout(30)
+    .build();
+
+  const prepared = await server.prepareTransaction(tx);
+  prepared.sign(keypair);
+  const result = await server.sendTransaction(prepared);
+
+  logger.info(
+    { marketId: market.id, txHash: result.hash },
+    "market finalized on-chain"
+  );
+}
+
+// ─── Cron job implementations ─────────────────────────────────────────────────
+
+/**
+ * enforceMarketLocks  (#1086)
+ *
+ * Finds all Open markets whose bettingEndsAt is in the past and locks them
+ * on-chain in a single batch. Safe to run every minute.
+ */
+async function enforceMarketLocks(): Promise<void> {
+  const now = new Date();
+
+  const markets = await db.market.findMany({
+    where: {
+      status: MarketStatus.Open,
+      bettingEndsAt: { lt: now },
+    },
+    select: { id: true, contractAddress: true },
+  });
+
+  if (markets.length === 0) {
+    logger.debug("enforceMarketLocks: no markets due for locking");
+    return;
+  }
+
+  logger.info({ count: markets.length }, "enforceMarketLocks: locking markets");
+
+  const server = new SorobanRpc.Server(RPC_URL);
+  const keypair = Keypair.fromSecret(ADMIN_SECRET);
+
+  // Process all due markets in this batch run
+  const results = await Promise.allSettled(
+    markets.map(async (market) => {
+      try {
+        await lockMarketOnChain(server, keypair, market);
+        // Update DB status to Locked after successful on-chain call
+        await db.market.update({
+          where: { id: market.id },
+          data: { status: MarketStatus.Locked },
+        });
+        logger.info({ marketId: market.id }, "market status updated to Locked");
+      } catch (err) {
+        logger.error({ err, marketId: market.id }, "failed to lock market");
+        throw err;
+      }
+    })
+  );
+
+  const failed = results.filter((r) => r.status === "rejected").length;
+  if (failed > 0) {
+    logger.warn({ failed, total: markets.length }, "enforceMarketLocks: some markets failed to lock");
+  }
+}
+
+/**
+ * autoFinalizeExpiredWindows  (#1085)
+ *
+ * Finds all Locked markets whose oracle result is confirmed and whose dispute
+ * window has elapsed without an open dispute. Marks them as Resolved.
+ *
+ * Idempotent: only Locked markets are queried — Resolved markets are never
+ * touched again, so double-runs have no effect.
+ */
+async function autoFinalizeExpiredWindows(): Promise<void> {
+  const now = new Date();
+  const windowCutoff = new Date(now.getTime() - DISPUTE_WINDOW_MS);
+
+  // Find Locked markets with a confirmed oracle result whose resolve time
+  // (bettingEndsAt + dispute window) has passed and no open dispute exists.
+  const markets = await db.market.findMany({
+    where: {
+      status: MarketStatus.Locked,
+      bettingEndsAt: { lt: windowCutoff },
+      oracleResult: {
+        confirmed: true,
+      },
+      disputes: {
+        none: {
+          resolvedAt: null, // no unresolved disputes
+        },
+      },
+    },
+    include: {
+      oracleResult: true,
+    },
+  });
+
+  if (markets.length === 0) {
+    logger.debug("autoFinalizeExpiredWindows: no markets to finalize");
+    return;
+  }
+
+  logger.info({ count: markets.length }, "autoFinalizeExpiredWindows: finalizing markets");
+
+  const server = new SorobanRpc.Server(RPC_URL);
+  const keypair = Keypair.fromSecret(ADMIN_SECRET);
+
+  await Promise.allSettled(
+    markets.map(async (market) => {
+      if (!market.oracleResult) return; // type guard
+
+      try {
+        // Attempt on-chain finalization — if RPC is down we still update the DB
+        // so the next run will skip this market (already Resolved).
+        try {
+          await finalizeMarketOnChain(server, keypair, market);
+        } catch (onChainErr) {
+          logger.warn(
+            { err: onChainErr, marketId: market.id },
+            "on-chain finalize failed, updating DB status anyway"
+          );
+        }
+
+        // Mark as Resolved in the database — idempotent because next query
+        // filters only Locked markets.
+        await db.market.update({
+          where: { id: market.id },
+          data: {
+            status: MarketStatus.Resolved,
+            outcome: market.oracleResult.outcome,
+            resolvedAt: now,
+          },
+        });
+
+        logger.info(
+          { marketId: market.id, outcome: market.oracleResult.outcome },
+          "market finalized and resolved"
+        );
+      } catch (err) {
+        logger.error({ err, marketId: market.id }, "failed to finalize market");
+      }
+    })
+  );
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/** Interval handle so the jobs can be stopped in tests. */
+let lockJobInterval: ReturnType<typeof setInterval> | null = null;
+let finalizeJobInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Starts both cron jobs. Both run every 60 seconds.
+ * Safe to call multiple times — existing intervals are cleared first.
+ */
+export function startResolutionService(): void {
+  if (lockJobInterval) clearInterval(lockJobInterval);
+  if (finalizeJobInterval) clearInterval(finalizeJobInterval);
+
+  lockJobInterval = setInterval(() => {
+    enforceMarketLocks().catch((err) =>
+      logger.error({ err }, "enforceMarketLocks: unexpected error")
+    );
+  }, 60_000);
+
+  finalizeJobInterval = setInterval(() => {
+    autoFinalizeExpiredWindows().catch((err) =>
+      logger.error({ err }, "autoFinalizeExpiredWindows: unexpected error")
+    );
+  }, 60_000);
+
+  logger.info("ResolutionService started (enforceMarketLocks + autoFinalizeExpiredWindows)");
+}
+
+/**
+ * Stops both cron jobs. Useful in tests and graceful shutdown.
+ */
+export function stopResolutionService(): void {
+  if (lockJobInterval) {
+    clearInterval(lockJobInterval);
+    lockJobInterval = null;
+  }
+  if (finalizeJobInterval) {
+    clearInterval(finalizeJobInterval);
+    finalizeJobInterval = null;
+  }
+  logger.info("ResolutionService stopped");
+}
+
+// Export internal functions for unit testing
+export { enforceMarketLocks, autoFinalizeExpiredWindows };

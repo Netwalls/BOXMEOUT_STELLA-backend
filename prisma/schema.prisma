@@ -42,6 +42,8 @@ model Market {
   createdAt       DateTime
   createdBy       String
   status          MarketStatus @default(Open)
+
+  @@index([createdBy])
   outcome         Outcome?
   resolvedAt      DateTime?
   poolA           BigInt       @default(0)
@@ -68,6 +70,8 @@ model Bet {
   claimedAt DateTime?
   payout    BigInt?
   txHash    String?
+
+  @@index([marketId, bettor])
 }
 
 model Dispute {
@@ -124,4 +128,25 @@ model AuditLog {
   requestBody   Json?
   statusCode    Int
   timestamp     DateTime @default(now())
+}
+
+model User {
+  address   String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EventLog {
+  id            Int       @id @default(autoincrement())
+  txHash        String
+  eventType     String
+  contractId    String
+  ledger        Int
+  ledgerClosedAt DateTime
+  body          Json
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([txHash, eventType])
+  @@index([processedAt])
 }

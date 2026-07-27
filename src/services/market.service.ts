@@ -1,6 +1,3 @@
-import { Market, MarketStatus, Outcome, PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
 import { Market, MarketStatus, Outcome } from "@prisma/client";
 import { db } from "../db";
 
@@ -20,8 +17,27 @@ export interface MarketStats {
   poolA: bigint;
   poolB: bigint;
   totalVolume: bigint;
-  impliedOddsA: number; // payout multiplier: (total_pool - fee) / pool_a
-  impliedOddsB: number; // payout multiplier: (total_pool - fee) / pool_b
+  impliedOddsA: number;
+  impliedOddsB: number;
+}
+
+export interface LeaderboardEntry {
+  bettor: string;
+  totalStaked: bigint;
+  betCount: number;
+}
+
+export interface CreateMarketDTO {
+  id: string;
+  contractAddress: string;
+  fighterA: object;
+  fighterB: object;
+  scheduledAt: Date;
+  bettingEndsAt: Date;
+  createdAt: Date;
+  createdBy: string;
+  oracleAddress: string;
+  txHash?: string;
 }
 
 const PROTOCOL_FEE_RATE = 0.02; // 2% protocol fee
@@ -45,42 +61,22 @@ export function calculateImpliedOdds(
   return { impliedOddsA, impliedOddsB };
 }
 
-export interface LeaderboardEntry {
-  bettor: string;
-  totalStaked: bigint;
-  betCount: number;
-}
-
-export interface CreateMarketDTO {
-  id: string;
-  contractAddress: string;
-  fighterA: object;
-  fighterB: object;
-  scheduledAt: Date;
-  bettingEndsAt: Date;
-  createdAt: Date;
-  createdBy: string;
-  oracleAddress: string;
-  txHash?: string;
-}
-
 export async function getAllMarkets(
   filters?: MarketFilters,
   pagination?: Pagination
 ): Promise<Market[]> {
-  const where: { status?: MarketStatus; weightClass?: string } = {};
-  if (filters?.status) where.status = filters.status;
-  if (filters?.weightClass) where.weightClass = filters.weightClass;
   const where: Record<string, unknown> = {};
 
   if (filters?.status) {
     where.status = filters.status;
   }
+  if (filters?.weightClass) {
+    where.weightClass = filters.weightClass;
+  }
 
   const page = pagination?.page ?? 1;
   const limit = pagination?.limit ?? 20;
 
-  return prisma.market.findMany({
   return db.market.findMany({
     where,
     orderBy: { scheduledAt: "asc" },
@@ -90,29 +86,10 @@ export async function getAllMarkets(
 }
 
 export async function getMarketById(market_id: string): Promise<Market | null> {
-  return prisma.market.findUnique({ where: { id: market_id } });
   return db.market.findUnique({ where: { id: market_id } });
 }
 
-export async function createMarketRecord(
-  marketData: CreateMarketDTO
-): Promise<Market> {
-  const data = {
-    contractAddress: marketData.contractAddress,
-    fighterA: marketData.fighterA,
-    fighterB: marketData.fighterB,
-    scheduledAt: marketData.scheduledAt,
-    bettingEndsAt: marketData.bettingEndsAt,
-    createdAt: marketData.createdAt,
-    createdBy: marketData.createdBy,
-    oracleAddress: marketData.oracleAddress,
-    txHash: marketData.txHash,
-  };
-
-  return prisma.market.upsert({
-    where: { id: marketData.id },
-    create: { id: marketData.id, ...data },
-    update: {},
+export async function createMarketRecord(marketData: CreateMarketDTO): Promise<Market> {
   return db.market.upsert({
     where: { id: marketData.id },
     update: {},
@@ -136,7 +113,7 @@ export async function updateMarketStatus(
   status: MarketStatus,
   outcome?: Outcome
 ): Promise<Market> {
-  return prisma.market.update({
+  return db.market.update({
     where: { id: market_id },
     data: {
       status,
@@ -151,14 +128,14 @@ export async function updateMarketPools(
   pool_a: bigint,
   pool_b: bigint
 ): Promise<void> {
-  await prisma.market.update({
+  await db.market.update({
     where: { id: market_id },
     data: { poolA: pool_a, poolB: pool_b, totalPool: pool_a + pool_b },
   });
 }
 
 export async function getMarketStats(market_id: string): Promise<MarketStats> {
-  const market = await prisma.market.findUnique({
+  const market = await db.market.findUnique({
     where: { id: market_id },
     include: { bets: true },
   });
@@ -168,27 +145,54 @@ export async function getMarketStats(market_id: string): Promise<MarketStats> {
   }
 
   const totalBets = market.bets.length;
-  const uniqueBettors = new Set(market.bets.map((b: any) => b.bettor)).size;
+  const uniqueBettors = new Set(market.bets.map((b) => b.bettor)).size;
   const poolA = market.poolA;
   const poolB = market.poolB;
   const totalVolume = market.totalPool;
 
   const impliedOddsA =
-    totalVolume > 0n
-      ? Number((poolA * 10000n) / totalVolume) / 100
-      : 50;
+    totalVolume > 0n ? Number((poolA * 10000n) / totalVolume) / 100 : 50;
   const impliedOddsB =
-    totalVolume > 0n
-      ? Number((poolB * 10000n) / totalVolume) / 100
-      : 50;
+    totalVolume > 0n ? Number((poolB * 10000n) / totalVolume) / 100 : 50;
 
   return { totalBets, uniqueBettors, poolA, poolB, totalVolume, impliedOddsA, impliedOddsB };
 }
 
+/**
+ * Returns a paginated leaderboard of bettors for a market, sorted by total staked descending.
+ * Groups bets by bettor and aggregates total staked and bet count.
+ */
 export async function getMarketLeaderboard(
-  market_id: string
+  market_id: string,
+  pagination?: Pagination
 ): Promise<LeaderboardEntry[]> {
-  throw new Error("Not implemented");
+  const page = pagination?.page ?? 1;
+  const limit = pagination?.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  const bets = await db.bet.findMany({
+    where: { marketId: market_id },
+    select: { bettor: true, amount: true },
+  });
+
+  // Aggregate by bettor
+  const bettorMap = new Map<string, { totalStaked: bigint; betCount: number }>();
+  for (const bet of bets) {
+    const existing = bettorMap.get(bet.bettor);
+    if (existing) {
+      existing.totalStaked += bet.amount;
+      existing.betCount += 1;
+    } else {
+      bettorMap.set(bet.bettor, { totalStaked: bet.amount, betCount: 1 });
+    }
+  }
+
+  // Sort by totalStaked desc, apply pagination
+  const sorted = Array.from(bettorMap.entries())
+    .map(([bettor, stats]) => ({ bettor, ...stats }))
+    .sort((a, b) => (b.totalStaked > a.totalStaked ? 1 : b.totalStaked < a.totalStaked ? -1 : 0));
+
+  return sorted.slice(skip, skip + limit);
 }
 
 /**

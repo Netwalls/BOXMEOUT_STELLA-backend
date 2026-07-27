@@ -28,17 +28,56 @@ export interface ExternalFightResult {
 }
 
 /**
- * Records a fight result from an authorized oracle or admin.
- * Persists to OracleResult table with confirmed=false.
- * Does NOT trigger on-chain resolution — confirmFightResult() does that.
+ * Records a fight result / resolution from an authorized oracle or admin.
+ * Persists to OracleResult table and updates market status.
  */
+export async function submitResolution(
+  marketId: string,
+  outcome: Outcome,
+  source: string = "admin",
+  reporter: string = "admin"
+): Promise<OracleResult> {
+  const market = await prisma.market.findUnique({ where: { id: marketId } });
+  if (!market) {
+    throw new Error(`Market not found: ${marketId}`);
+  }
+
+  const oracleResult = await prisma.oracleResult.upsert({
+    where: { marketId },
+    create: {
+      marketId,
+      reportedBy: reporter,
+      outcome,
+      source,
+      confirmed: true,
+    },
+    update: {
+      reportedBy: reporter,
+      outcome,
+      source,
+      confirmed: true,
+    },
+  });
+
+  await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: "Resolved",
+      outcome,
+      resolvedAt: new Date(),
+    },
+  });
+
+  return oracleResult;
+}
+
 export async function submitFightResult(
   market_id: string,
   outcome: Outcome,
   source: string,
   reporter: string
 ): Promise<OracleResult> {
-  throw new Error("Not implemented");
+  return submitResolution(market_id, outcome, source, reporter);
 }
 
 /**

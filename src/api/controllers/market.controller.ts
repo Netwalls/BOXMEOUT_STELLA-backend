@@ -5,6 +5,7 @@ import { z } from "zod";
 import * as marketService from "../../services/market.service";
 import { searchMarkets } from "../../repositories/market.repository";
 import * as oracleService from "../../services/oracle.service";
+import { ResolutionService } from "../../services/resolution.service";
 
 const prisma = new PrismaClient();
 
@@ -91,21 +92,33 @@ export async function getMarketBetsHandler(req: Request, res: Response): Promise
  */
 export async function resolveMarketHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { oracle_result_id } = req.body;
+    const { market_id, marketId, outcome, oracle_result_id, source, reporter } = req.body;
+    const targetMarketId = market_id || marketId;
 
-    if (oracle_result_id === undefined || oracle_result_id === null) {
-      res.status(400).json({ error: "oracle_result_id is required", code: "VALIDATION_ERROR" });
+    if (targetMarketId && outcome) {
+      const result = await ResolutionService.resolveFight({
+        marketId: String(targetMarketId),
+        outcome,
+        source,
+        reporter,
+      });
+      res.status(200).json({ status: "ok", data: result });
       return;
     }
 
-    const id = Number(oracle_result_id);
-    if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({ error: "oracle_result_id must be a positive integer", code: "VALIDATION_ERROR" });
+    if (oracle_result_id !== undefined && oracle_result_id !== null) {
+      const id = Number(oracle_result_id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: "oracle_result_id must be a positive integer", code: "VALIDATION_ERROR" });
+        return;
+      }
+
+      await oracleService.confirmFightResult(String(id), "admin");
+      res.status(200).json({ status: "ok" });
       return;
     }
 
-    await oracleService.confirmFightResult(String(id), "admin");
-    res.status(200).json({ status: "ok" });
+    res.status(400).json({ error: "market_id (or marketId) and outcome required", code: "VALIDATION_ERROR" });
   } catch (err) {
     next(err);
   }
@@ -114,12 +127,39 @@ export async function resolveMarketHandler(req: Request, res: Response, next: Ne
 /**
  * POST /api/admin/markets/dispute/resolve
  */
-export async function resolveDisputeHandler(req: Request, res: Response): Promise<void> {
+export async function resolveDisputeHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    res.json({ success: true });
+    const { dispute_id, disputeId, outcome, notes, decisionNotes } = req.body;
+    const targetDisputeId = dispute_id || disputeId;
+    const notesText = notes || decisionNotes;
+
+    if (!targetDisputeId) {
+      res.status(400).json({ error: "dispute_id is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+
+    if (!outcome) {
+      res.status(400).json({ error: "outcome is required", code: "VALIDATION_ERROR" });
+      return;
+    }
+
+    if (!notesText || !String(notesText).trim()) {
+      res.status(400).json({ error: "Notes explaining the decision are required for audit", code: "VALIDATION_ERROR" });
+      return;
+    }
+
+    const admin = (req as any).user?.id || (req as any).admin || "admin";
+
+    const result = await ResolutionService.handleDispute({
+      disputeId: String(targetDisputeId),
+      outcome,
+      admin,
+      notes: String(notesText),
+    });
+
+    res.status(200).json({ success: true, status: "ok", data: result });
   } catch (err) {
-    logger.error({ err }, "resolveDisputeHandler failed");
-    res.status(500).json({ error: "Internal server error" });
+    next(err);
   }
 }
 

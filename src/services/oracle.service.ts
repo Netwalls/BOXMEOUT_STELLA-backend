@@ -11,6 +11,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { logger } from "../logger";
+import { ContractError } from "../errors";
 
 const prisma = new PrismaClient();
 const RPC_URL = process.env.STELLAR_RPC_URL!;
@@ -31,6 +32,17 @@ export interface ExternalFightResult {
  * Records a fight result from an authorized oracle or admin.
  * Persists to OracleResult table with confirmed=false.
  * Does NOT trigger on-chain resolution — confirmFightResult() does that.
+ *
+ * Flow:
+ *   1. Verify the market exists and is in Locked status.
+ *   2. Verify `reporter` is the authorized oracle for this market.
+ *   3. Persist an unconfirmed OracleResult row.
+ *
+ * The signing key is never read, logged, or touched here — on-chain submission
+ * only happens when an admin subsequently calls confirmFightResult().
+ *
+ * @throws {Error}                   If market not found or not in Locked status.
+ * @throws {OracleAuthorizationError} If reporter is not the authorized oracle.
  */
 export async function submitFightResult(
   market_id: string,
@@ -38,7 +50,48 @@ export async function submitFightResult(
   source: string,
   reporter: string
 ): Promise<OracleResult> {
-  throw new Error("Not implemented");
+  // 1. Verify market exists and is in the correct state for resolution.
+  const market = await prisma.market.findUnique({ where: { id: market_id } });
+  if (!market) {
+    throw new Error(`Market not found: ${market_id}`);
+  }
+  if (market.status !== "Locked") {
+    throw new Error(
+      `Market ${market_id} is not Locked (current status: ${market.status}). ` +
+        `Only Locked markets can receive oracle results.`,
+    );
+  }
+
+  // 2. Confirm reporter is the authorized oracle for this market.
+  //    verifyOracleAuthorization throws OracleAuthorizationError on failure.
+  await verifyOracleAuthorization(market_id, reporter);
+
+  // 3. Persist the unconfirmed result. The unique constraint on marketId means
+  //    a second call for the same market will throw — callers should check
+  //    listPendingResolutions() first if re-entrancy is a concern.
+  const oracleResult = await prisma.oracleResult.create({
+    data: {
+      marketId: market_id,
+      reportedBy: reporter,
+      outcome,
+      source,
+      confirmed: false, // Explicit: never auto-confirms. Admin must call confirmFightResult().
+    },
+  });
+
+  logger.info(
+    {
+      marketId: market_id,
+      oracleResultId: oracleResult.id,
+      outcome,
+      source,
+      // reporter address is safe to log — it's a public key, not a secret.
+      reporter,
+    },
+    "submitFightResult: oracle result queued, awaiting admin confirmation",
+  );
+
+  return oracleResult;
 }
 
 /**
@@ -75,7 +128,10 @@ export async function confirmFightResult(
   const sendResult = await server.sendTransaction(prepared);
 
   if (sendResult.status === "ERROR") {
-    throw new Error(`Stellar tx failed: ${JSON.stringify(sendResult.errorResult)}`);
+    throw new ContractError(
+      `Stellar tx failed: ${JSON.stringify(sendResult.errorResult)}`,
+      sendResult.errorResult,
+    );
   }
 
   await prisma.oracleResult.update({

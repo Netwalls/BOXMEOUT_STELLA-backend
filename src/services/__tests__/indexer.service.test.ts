@@ -42,10 +42,12 @@ jest.mock("../market.service", () => ({
 // ── Mock bet.service ─────────────────────────────────────────────────────────
 const mockRecordBet = jest.fn();
 const mockMarkBetClaimed = jest.fn();
+const mockMarkBetClaimedByMarketAndBettor = jest.fn();
 
 jest.mock("../bet.service", () => ({
   recordBet: (...args: unknown[]) => mockRecordBet(...args),
   markBetClaimed: (...args: unknown[]) => mockMarkBetClaimed(...args),
+  markBetClaimedByMarketAndBettor: (...args: unknown[]) => mockMarkBetClaimedByMarketAndBettor(...args),
 }));
 
 // ── Import the module under test (after mocks are registered) ────────────────
@@ -56,6 +58,9 @@ import {
   handleMarketCreatedEvent,
   handleBetPlacedEvent,
   handleMarketResolvedEvent,
+  handleMarketCancelledEvent,
+  handleWinningsClaimedEvent,
+  handleRefundClaimedEvent,
   SorobanEvent,
   LedgerData,
 } from "../indexer.service";
@@ -138,6 +143,7 @@ describe("Issue 2 — processLedger", () => {
     mockUpdateMarketPools.mockResolvedValue(undefined);
     mockUpdateMarketStatus.mockResolvedValue({});
     mockMarkBetClaimed.mockResolvedValue({});
+    mockMarkBetClaimedByMarketAndBettor.mockResolvedValue({});
   });
 
   const makeEvent = (type: string, extra: Record<string, unknown> = {}): SorobanEvent => ({
@@ -221,28 +227,46 @@ describe("Issue 2 — processLedger", () => {
     expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_1", "Resolved", "FighterA");
   });
 
-  it("routes WinningsClaimed to handleWinnersClaimedEvent", async () => {
+  it("routes WinningsClaimed to handleWinningsClaimedEvent", async () => {
     const ledger: LedgerData = {
       sequence: 1003,
       closedAt: "2025-01-01T00:00:00Z",
-      events: [makeEvent("WinningsClaimed", { bet_id: "BET_1", payout: "2000000" })],
+      events: [makeEvent("WinningsClaimed", { bettor: "BETTOR_ADDR", payout: "2000000" })],
     };
 
     await processLedger(ledger);
 
-    expect(mockMarkBetClaimed).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_1", "BETTOR_ADDR", BigInt("2000000")
+    );
   });
 
-  it("routes RefundClaimed to handleWinnersClaimedEvent", async () => {
+  it("routes RefundClaimed to handleRefundClaimedEvent", async () => {
     const ledger: LedgerData = {
       sequence: 1004,
       closedAt: "2025-01-01T00:00:00Z",
-      events: [makeEvent("RefundClaimed", { bet_id: "BET_2", payout: "500000" })],
+      events: [makeEvent("RefundClaimed", { bettor: "BETTOR_ADDR", amount: "500000" })],
     };
 
     await processLedger(ledger);
 
-    expect(mockMarkBetClaimed).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_1", "BETTOR_ADDR", BigInt("500000")
+    );
+  });
+
+  it("routes MarketCancelled to handleMarketCancelledEvent", async () => {
+    const ledger: LedgerData = {
+      sequence: 1009,
+      closedAt: "2025-01-01T00:00:00Z",
+      events: [makeEvent("MarketCancelled", { reason: "fight_postponed" })],
+    };
+
+    await processLedger(ledger);
+
+    expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_1", "Cancelled");
   });
 
   it("routes MarketLocked to handleMarketLockedEvent", async () => {
@@ -541,5 +565,270 @@ describe("Issue 5 — handleMarketResolvedEvent", () => {
 
     const call = mockUpdateMarketStatus.mock.calls[0];
     expect(call[1]).toBe("Resolved");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 2 — handleMarketCancelledEvent
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Task 2 — handleMarketCancelledEvent", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUpdateMarketStatus.mockResolvedValue({});
+  });
+
+  const makeCancelledEvent = (overrides: Record<string, unknown> = {}): SorobanEvent => ({
+    type: "MarketCancelled",
+    contractId: "CONTRACT_ADDR",
+    ledger: 5000,
+    ledgerClosedAt: "2025-06-01T10:00:00Z",
+    txHash: "0xCANCELLED",
+    body: {
+      market_id: "MARKET_777",
+      reason: "fight_postponed",
+      ...overrides,
+    },
+  });
+
+  it("decodes market_cancelled event and sets status to Cancelled", async () => {
+    await handleMarketCancelledEvent(makeCancelledEvent());
+
+    expect(mockUpdateMarketStatus).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_777", "Cancelled");
+  });
+
+  it("handles mock event payload correctly", async () => {
+    const mockPayload = makeCancelledEvent({ reason: "fighter_injury" });
+
+    await handleMarketCancelledEvent(mockPayload);
+
+    expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_777", "Cancelled");
+  });
+
+  it("is idempotent — replaying calls updateMarketStatus twice", async () => {
+    const event = makeCancelledEvent();
+
+    await handleMarketCancelledEvent(event);
+    await handleMarketCancelledEvent(event);
+
+    expect(mockUpdateMarketStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 3 — handleWinningsClaimedEvent
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Task 3 — handleWinningsClaimedEvent", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockMarkBetClaimedByMarketAndBettor.mockResolvedValue({});
+  });
+
+  const makeClaimEvent = (overrides: Record<string, unknown> = {}): SorobanEvent => ({
+    type: "WinningsClaimed",
+    contractId: "CONTRACT_ADDR",
+    ledger: 6000,
+    ledgerClosedAt: "2025-07-01T12:00:00Z",
+    txHash: "0xCLAIM1",
+    body: {
+      market_id: "MARKET_42",
+      bettor: "GBETTOR123",
+      payout: "9800000",
+      ...overrides,
+    },
+  });
+
+  it("decodes winnings_claimed event and marks bet claimed by (marketId, bettor)", async () => {
+    await handleWinningsClaimedEvent(makeClaimEvent());
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_42", "GBETTOR123", BigInt("9800000")
+    );
+  });
+
+  it("matches the correct bet row via (marketId, bettor)", async () => {
+    const event = makeClaimEvent({ market_id: "MARKET_99", bettor: "GDIFF_BETTOR" });
+
+    await handleWinningsClaimedEvent(event);
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_99", "GDIFF_BETTOR", expect.any(BigInt)
+    );
+  });
+
+  it("handles numeric payout amounts", async () => {
+    await handleWinningsClaimedEvent(makeClaimEvent({ payout: 5000000 }));
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_42", "GBETTOR123", BigInt(5000000)
+    );
+  });
+
+  it("is idempotent — replaying calls the service again", async () => {
+    const event = makeClaimEvent();
+
+    await handleWinningsClaimedEvent(event);
+    await handleWinningsClaimedEvent(event);
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 3 — handleRefundClaimedEvent
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Task 3 — handleRefundClaimedEvent", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockMarkBetClaimedByMarketAndBettor.mockResolvedValue({});
+  });
+
+  const makeRefundEvent = (overrides: Record<string, unknown> = {}): SorobanEvent => ({
+    type: "RefundClaimed",
+    contractId: "CONTRACT_ADDR",
+    ledger: 7000,
+    ledgerClosedAt: "2025-08-01T12:00:00Z",
+    txHash: "0xREFUND1",
+    body: {
+      market_id: "MARKET_55",
+      bettor: "GBETTOR_REFUND",
+      amount: "1000000",
+      ...overrides,
+    },
+  });
+
+  it("decodes refund_claimed event and marks bet claimed by (marketId, bettor)", async () => {
+    await handleRefundClaimedEvent(makeRefundEvent());
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_55", "GBETTOR_REFUND", BigInt("1000000")
+    );
+  });
+
+  it("matches the correct bet row via (marketId, bettor)", async () => {
+    const event = makeRefundEvent({ market_id: "MARKET_88", bettor: "GOTHER" });
+
+    await handleRefundClaimedEvent(event);
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_88", "GOTHER", expect.any(BigInt)
+    );
+  });
+
+  it("is idempotent — replaying calls the service again", async () => {
+    const event = makeRefundEvent();
+
+    await handleRefundClaimedEvent(event);
+    await handleRefundClaimedEvent(event);
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 4 — handleDisputeEvent (resolution_disputed sets status Disputed)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Task 4 — handleDisputeEvent (DisputeRaised)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreate.mockResolvedValue({});
+    mockUpdateMarketStatus.mockResolvedValue({});
+  });
+
+  const makeDisputeRaisedEvent = (overrides: Record<string, unknown> = {}): SorobanEvent => ({
+    type: "DisputeRaised",
+    contractId: "CONTRACT_ADDR",
+    ledger: 8000,
+    ledgerClosedAt: "2025-09-01T14:00:00Z",
+    txHash: "0xDISPUTE1",
+    body: {
+      market_id: "MARKET_123",
+      raised_by: "GBETTOR_DISPUTER",
+      reason: "Wrong outcome reported by oracle",
+      ...overrides,
+    },
+  });
+
+  it("decodes resolution_disputed event and sets market status to Disputed", async () => {
+    // processLedger routes DisputeRaised to handleDisputeEvent
+    const mockTransactionFn = jest.fn(async (cb: () => Promise<void>) => cb());
+    mockTransaction.mockImplementationOnce(mockTransactionFn);
+
+    const ledger: LedgerData = {
+      sequence: 100,
+      closedAt: "2025-09-01T14:00:00Z",
+      events: [makeDisputeRaisedEvent()],
+    };
+
+    await processLedger(ledger);
+
+    expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_123", "Disputed");
+  });
+
+  it("stores dispute reason for admin review UI in the Dispute table", async () => {
+    mockTransaction.mockImplementationOnce(async (cb: () => Promise<void>) => cb());
+
+    const ledger: LedgerData = {
+      sequence: 200,
+      closedAt: "2025-09-01T14:00:00Z",
+      events: [makeDisputeRaisedEvent({ reason: "Oracle submitted conflicting scores" })],
+    };
+
+    await processLedger(ledger);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const disputeData = mockCreate.mock.calls[0][0].data;
+    expect(disputeData.marketId).toBe("MARKET_123");
+    expect(disputeData.raisedBy).toBe("GBETTOR_DISPUTER");
+    expect(disputeData.reason).toBe("Oracle submitted conflicting scores");
+  });
+
+  it("sets market status to Disputed and creates dispute record", async () => {
+    mockTransaction.mockImplementationOnce(async (cb: () => Promise<void>) => cb());
+
+    const ledger: LedgerData = {
+      sequence: 300,
+      closedAt: "2025-09-01T14:00:00Z",
+      events: [makeDisputeRaisedEvent()],
+    };
+
+    await processLedger(ledger);
+
+    // Both actions should happen: create dispute + set status
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_123", "Disputed");
+  });
+
+  it("DisputeResolved sets status back to Resolved", async () => {
+    mockTransaction.mockImplementationOnce(async (cb: () => Promise<void>) => cb());
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+
+    const resolvedEvent: SorobanEvent = {
+      type: "DisputeResolved",
+      contractId: "CONTRACT_ADDR",
+      ledger: 9000,
+      ledgerClosedAt: "2025-09-05T10:00:00Z",
+      txHash: "0xRESOLVED",
+      body: {
+        market_id: "MARKET_123",
+        resolution: "Overturned",
+      },
+    };
+
+    const ledger: LedgerData = {
+      sequence: 400,
+      closedAt: "2025-09-05T10:00:00Z",
+      events: [resolvedEvent],
+    };
+
+    await processLedger(ledger);
+
+    expect(mockUpdateMarketStatus).toHaveBeenCalledWith("MARKET_123", "Resolved");
   });
 });

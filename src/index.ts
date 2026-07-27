@@ -1,8 +1,10 @@
+// Validate environment variables before starting (throws on missing vars)
+import { config } from "./config";
 import { createApp } from "./app";
 import { logger } from "./logger";
 import { startResolutionService, stopResolutionService } from "./services/resolution.service";
 
-const PORT = parseInt(process.env.PORT || "3001", 10);
+const PORT = config.PORT;
 
 const app = createApp();
 

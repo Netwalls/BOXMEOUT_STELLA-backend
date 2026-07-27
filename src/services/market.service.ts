@@ -94,7 +94,7 @@ export async function getAllMarkets(
   }
 
   const page = pagination?.page ?? 1;
-  const limit = pagination?.limit ?? 20;
+  const limit = Math.min(pagination?.pageSize ?? 20, MAX_PAGE_SIZE);
 
   return db.market.findMany({
     where,
@@ -110,26 +110,6 @@ export async function getAllMarkets(
  */
 export async function getMarketById(market_id: string): Promise<Market | null> {
   return db.market.findUnique({ where: { id: market_id } });
-}
-
-export async function createMarketRecord(marketData: CreateMarketDTO): Promise<Market> {
-  return db.market.upsert({
-    where: { id: txHash },
-    update: {},
-    create: {
-      id: txHash,
-      contractAddress: marketData.contractAddress ?? "",
-      fighterA: marketData.fighterA,
-      fighterB: marketData.fighterB,
-      scheduledAt: marketData.scheduledAt,
-      bettingEndsAt: marketData.bettingEndsAt,
-      createdAt: new Date(),
-      createdBy: marketData.createdBy,
-      oracleAddress: marketData.oracleAddress ?? "",
-      txHash,
-      status: "Open",
-    },
-  });
 }
 
 /**
@@ -154,7 +134,7 @@ export async function createMarketRecord(
 
       if (optimistic) {
         // Atomically delete the optimistic row and create the real one
-        await tx.market.delete({ where: { id: marketData.txHash! } });
+        await tx.market.delete({ where: { id: marketData.txHash } });
         const market = await tx.market.create({
           data: {
             id: marketData.id,
@@ -256,9 +236,7 @@ export async function reconcileMarketFromChain(
   }
 
   if (!simResult.result?.retval) {
-    throw new Error(
-      `Empty simulation result for market ${marketId}`
-    );
+    throw new Error(`Empty simulation result for market ${marketId}`);
   }
 
   // Convert the ScVal return value to a native JS object.
@@ -316,6 +294,13 @@ export async function reconcileMarketFromChain(
   return updated;
 }
 
+/**
+ * Updates the status of a market and optionally its outcome.
+ * Sets resolvedAt when transitioning to Resolved.
+ *
+ * Covers all MarketStatus transitions:
+ *   Open → Locked → Resolved | Cancelled | Disputed
+ */
 export async function updateMarketStatus(
   market_id: string,
   status: MarketStatus,
@@ -326,7 +311,7 @@ export async function updateMarketStatus(
     data: {
       status,
       ...(outcome !== undefined && { outcome }),
-      ...(status === "Resolved" && { resolvedAt: new Date() }),
+      ...(status === MarketStatus.Resolved && { resolvedAt: new Date() }),
     },
   });
 }
@@ -383,7 +368,7 @@ export async function getMarketLeaderboard(
   pagination?: Pagination
 ): Promise<LeaderboardEntry[]> {
   const page = pagination?.page ?? 1;
-  const limit = pagination?.limit ?? 20;
+  const limit = Math.min(pagination?.pageSize ?? 20, MAX_PAGE_SIZE);
   const skip = (page - 1) * limit;
 
   const bets = await db.bet.findMany({
@@ -406,7 +391,9 @@ export async function getMarketLeaderboard(
   // Sort by totalStaked desc, apply pagination
   const sorted = Array.from(bettorMap.entries())
     .map(([bettor, stats]) => ({ bettor, ...stats }))
-    .sort((a, b) => (b.totalStaked > a.totalStaked ? 1 : b.totalStaked < a.totalStaked ? -1 : 0));
+    .sort((a, b) =>
+      b.totalStaked > a.totalStaked ? 1 : b.totalStaked < a.totalStaked ? -1 : 0
+    );
 
   return sorted.slice(skip, skip + limit);
 }
@@ -421,7 +408,7 @@ export async function resolveMarket(
   source: string,
   admin: string
 ): Promise<Market> {
-  const market = await prisma.market.update({
+  const market = await db.market.update({
     where: { id: marketId },
     data: {
       status: MarketStatus.Resolved,
@@ -430,7 +417,7 @@ export async function resolveMarket(
     },
   });
 
-  await prisma.adminLog.create({
+  await db.adminLog.create({
     data: {
       action: "RESOLVE_MARKET",
       actor: admin,
@@ -451,7 +438,7 @@ export async function cancelMarket(
   admin: string,
   reason?: string
 ): Promise<Market> {
-  const market = await prisma.market.update({
+  const market = await db.market.update({
     where: { id: marketId },
     data: {
       status: MarketStatus.Cancelled,
@@ -459,7 +446,7 @@ export async function cancelMarket(
     },
   });
 
-  await prisma.adminLog.create({
+  await db.adminLog.create({
     data: {
       action: "CANCEL_MARKET",
       actor: admin,
@@ -481,7 +468,7 @@ export async function resolveMarketDispute(
   admin: string,
   resolution?: string
 ): Promise<Market> {
-  const market = await prisma.market.update({
+  const market = await db.market.update({
     where: { id: marketId },
     data: {
       status: MarketStatus.Resolved,
@@ -490,7 +477,7 @@ export async function resolveMarketDispute(
     },
   });
 
-  await prisma.adminLog.create({
+  await db.adminLog.create({
     data: {
       action: "RESOLVE_DISPUTE",
       actor: admin,

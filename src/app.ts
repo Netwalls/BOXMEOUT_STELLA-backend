@@ -5,9 +5,11 @@ import { walletAuthMiddleware } from "./api/middleware/walletAuth.middleware";
 import { errorHandlerMiddleware } from "./api/middleware/errorHandler.middleware";
 import marketRoutes from "./api/routes/market.routes";
 import betRoutes from "./api/routes/bet.routes";
+import usersRoutes from "./api/routes/users.routes";
 import adminRoutes from "./api/routes/admin.routes";
 import authRoutes from "./api/routes/auth.routes";
 import healthRoutes from "./api/routes/health.routes";
+import docsRoutes from "./api/routes/docs.routes";
 
 export function createApp(): express.Application {
   const app = express();
@@ -25,10 +27,13 @@ export function createApp(): express.Application {
   app.use("/", healthRoutes);
   app.use("/api/markets", marketRoutes);
   app.use("/api/bets", betRoutes);
-  app.use("/api/auth", authRoutes);
-  app.use("/api/admin", walletAuthMiddleware(), adminRoutes);
+  app.use("/api/users", usersRoutes);
+  app.use("/api/admin", adminRoutes);
 
-  app.use(errorHandlerMiddleware);
+  // B-37: Swagger UI — dev mode only (Issue #1095)
+  if (process.env.NODE_ENV !== "production") {
+    app.use("/docs", docsRoutes);
+  }
 
   return app;
 }

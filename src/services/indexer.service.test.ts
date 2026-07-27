@@ -1,9 +1,9 @@
-import { handleWinnersClaimedEvent, SorobanEvent } from "./indexer.service";
+import { handleWinningsClaimedEvent, handleRefundClaimedEvent, SorobanEvent } from "./indexer.service";
 import * as betService from "./bet.service";
 
 jest.mock("./bet.service");
 
-const mockMarkBetClaimed = betService.markBetClaimed as jest.MockedFunction<typeof betService.markBetClaimed>;
+const mockMarkBetClaimedByMarketAndBettor = betService.markBetClaimedByMarketAndBettor as jest.MockedFunction<typeof betService.markBetClaimedByMarketAndBettor>;
 
 const makeEvent = (type: string, overrides: Record<string, unknown> = {}): SorobanEvent => ({
   type,
@@ -12,43 +12,76 @@ const makeEvent = (type: string, overrides: Record<string, unknown> = {}): Sorob
   ledgerClosedAt: "2026-01-01T00:00:00Z",
   txHash: "abc123",
   body: {
-    bet_id: "bet-42",
+    market_id: "market-1",
     bettor: "GABC",
     payout: "5000000000",
+    amount: "5000000000",
     ...overrides,
   },
 });
 
-describe("handleWinnersClaimedEvent", () => {
+describe("handleWinningsClaimedEvent", () => {
   beforeEach(() => {
-    mockMarkBetClaimed.mockResolvedValue({} as any);
+    mockMarkBetClaimedByMarketAndBettor.mockResolvedValue({} as any);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  it("marks the bet as claimed with the correct payout for WinningsClaimed", async () => {
-    await handleWinnersClaimedEvent(makeEvent("WinningsClaimed"));
+  it("decodes winnings_claimed event and marks bet claimed by (marketId, bettor)", async () => {
+    const event = makeEvent("WinningsClaimed", { market_id: "MARKET_42", bettor: "GBETTOR1", payout: "2000000" });
+    await handleWinningsClaimedEvent(event);
 
-    expect(mockMarkBetClaimed).toHaveBeenCalledTimes(1);
-    expect(mockMarkBetClaimed).toHaveBeenCalledWith("bet-42", BigInt("5000000000"));
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_42", "GBETTOR1", BigInt("2000000")
+    );
   });
 
-  it("marks the bet as claimed with the correct payout for RefundClaimed", async () => {
-    await handleWinnersClaimedEvent(makeEvent("RefundClaimed", { payout: "1000000000" }));
+  it("matches the correct bet row via (marketId, bettor)", async () => {
+    const event = makeEvent("WinningsClaimed", { market_id: "M99", bettor: "GDIFF" });
+    await handleWinningsClaimedEvent(event);
 
-    expect(mockMarkBetClaimed).toHaveBeenCalledTimes(1);
-    expect(mockMarkBetClaimed).toHaveBeenCalledWith("bet-42", BigInt("1000000000"));
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "M99", "GDIFF", expect.any(BigInt)
+    );
   });
 
-  it("is idempotent — calling twice invokes markBetClaimed twice (upsert is in the service)", async () => {
+  it("is idempotent — calling twice invokes markBetClaimedByMarketAndBettor twice", async () => {
     const event = makeEvent("WinningsClaimed");
-    await handleWinnersClaimedEvent(event);
-    await handleWinnersClaimedEvent(event);
+    await handleWinningsClaimedEvent(event);
+    await handleWinningsClaimedEvent(event);
 
-    expect(mockMarkBetClaimed).toHaveBeenCalledTimes(2);
-    expect(mockMarkBetClaimed).toHaveBeenNthCalledWith(1, "bet-42", BigInt("5000000000"));
-    expect(mockMarkBetClaimed).toHaveBeenNthCalledWith(2, "bet-42", BigInt("5000000000"));
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("handleRefundClaimedEvent", () => {
+  beforeEach(() => {
+    mockMarkBetClaimedByMarketAndBettor.mockResolvedValue({} as any);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("decodes refund_claimed event and marks bet claimed by (marketId, bettor)", async () => {
+    const event = makeEvent("RefundClaimed", { market_id: "MARKET_55", bettor: "GREFUND", amount: "1000000" });
+    await handleRefundClaimedEvent(event);
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledTimes(1);
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "MARKET_55", "GREFUND", BigInt("1000000")
+    );
+  });
+
+  it("matches the correct bet row via (marketId, bettor)", async () => {
+    const event = makeEvent("RefundClaimed", { market_id: "M88", bettor: "GOTHER" });
+    await handleRefundClaimedEvent(event);
+
+    expect(mockMarkBetClaimedByMarketAndBettor).toHaveBeenCalledWith(
+      "M88", "GOTHER", expect.any(BigInt)
+    );
   });
 });

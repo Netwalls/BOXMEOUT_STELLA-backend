@@ -5,6 +5,7 @@ import { SorobanRpc } from "@stellar/stellar-sdk";
 import * as marketService from "./market.service";
 import * as betService from "./bet.service";
 import { markBetClaimed } from "./bet.service";
+import { publishMarketEvent } from "../events/marketEvents";
 
 const prisma = new PrismaClient();
 const logger = pino({ name: "indexer" });
@@ -133,9 +134,14 @@ export async function processLedger(ledger: LedgerData): Promise<void> {
         case "MarketResolved":
           await handleMarketResolvedEvent(event);
           break;
+        case "MarketCancelled":
+          await handleMarketCancelledEvent(event);
+          break;
         case "WinningsClaimed":
+          await handleWinningsClaimedEvent(event);
+          break;
         case "RefundClaimed":
-          await handleWinnersClaimedEvent(event);
+          await handleRefundClaimedEvent(event);
           break;
         case "MarketLocked":
           await handleMarketLockedEvent(event);
@@ -231,6 +237,15 @@ export async function handleBetPlacedEvent(event: SorobanEvent): Promise<void> {
     toBigInt(b.pool_b)
   );
 
+  publishMarketEvent(b.market_id as string, "bet_placed", {
+    betId: b.bet_id,
+    bettor: b.bettor,
+    side: b.side,
+    amount: String(toBigInt(b.amount)),
+    poolA: String(toBigInt(b.pool_a)),
+    poolB: String(toBigInt(b.pool_b)),
+  });
+
   logger.info(
     { betId: b.bet_id, marketId: b.market_id, ledger: event.ledger },
     "BetPlaced processed"
@@ -254,19 +269,44 @@ export async function handleMarketResolvedEvent(event: SorobanEvent): Promise<vo
     "Resolved",
     b.outcome as "FighterA" | "FighterB" | "Draw" | "NoContest"
   );
+
+  publishMarketEvent(b.market_id as string, "market_resolved", {
+    outcome: b.outcome,
+  });
+
   logger.info({ marketId: b.market_id, outcome: b.outcome }, "MarketResolved processed");
 }
 
 /**
- * Parses WinningsClaimed or RefundClaimed event.
- * Calls bet.service.markBetClaimed() with the payout amount.
+ * Parses WinningsClaimed event.
+ * Matches the bet by (marketId, bettor) from the event body.
  *
- * Expected event.body: { bet_id, payout: string | number | bigint }
+ * Expected event.body: { market_id, bettor, payout: string | number | bigint }
  */
-export async function handleWinnersClaimedEvent(event: SorobanEvent): Promise<void> {
+export async function handleWinningsClaimedEvent(event: SorobanEvent): Promise<void> {
   const b = event.body;
-  await betService.markBetClaimed(b.bet_id as string, toBigInt(b.payout));
-  logger.info({ betId: b.bet_id, type: event.type }, "Claim processed");
+  await betService.markBetClaimedByMarketAndBettor(
+    b.market_id as string,
+    b.bettor as string,
+    toBigInt(b.payout)
+  );
+  logger.info({ marketId: b.market_id, bettor: b.bettor, type: event.type }, "WinningsClaimed processed");
+}
+
+/**
+ * Parses RefundClaimed event.
+ * Matches the bet by (marketId, bettor) from the event body.
+ *
+ * Expected event.body: { market_id, bettor, amount: string | number | bigint }
+ */
+export async function handleRefundClaimedEvent(event: SorobanEvent): Promise<void> {
+  const b = event.body;
+  await betService.markBetClaimedByMarketAndBettor(
+    b.market_id as string,
+    b.bettor as string,
+    toBigInt(b.amount)
+  );
+  logger.info({ marketId: b.market_id, bettor: b.bettor, type: event.type }, "RefundClaimed processed");
 }
 
 /**
@@ -285,6 +325,9 @@ export async function handleMarketLockedEvent(event: SorobanEvent): Promise<void
  *
  * DisputeRaised body:   { market_id, raised_by, reason }
  * DisputeResolved body: { market_id, resolution }
+ *
+ * On dispute raised: sets market status to Disputed and stores the dispute
+ * reason for admin review via the Dispute table.
  */
 export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
   const b = event.body;
@@ -297,6 +340,7 @@ export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
         raisedAt: toDate(event.ledgerClosedAt),
       },
     });
+    await marketService.updateMarketStatus(b.market_id as string, "Disputed");
   } else if (event.type === "DisputeResolved") {
     await prisma.dispute.updateMany({
       where: { marketId: b.market_id as string, resolvedAt: null },
@@ -308,6 +352,17 @@ export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
     await marketService.updateMarketStatus(b.market_id as string, "Resolved");
   }
   logger.info({ marketId: b.market_id, type: event.type }, "Dispute event processed");
+}
+
+/**
+ * Parses MarketCancelled event and sets market status to Cancelled.
+ *
+ * Expected event.body: { market_id, reason: string }
+ */
+export async function handleMarketCancelledEvent(event: SorobanEvent): Promise<void> {
+  const b = event.body;
+  await marketService.updateMarketStatus(b.market_id as string, "Cancelled");
+  logger.info({ marketId: b.market_id, reason: b.reason }, "MarketCancelled processed");
 }
 
 

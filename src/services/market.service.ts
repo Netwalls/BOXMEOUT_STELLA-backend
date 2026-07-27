@@ -18,8 +18,17 @@ export interface MarketFilters {
 
 export interface Pagination {
   page: number;
-  limit: number;
+  pageSize: number;
 }
+
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const MAX_PAGE_SIZE = 100;
 
 export interface MarketStats {
   totalBets: number;
@@ -29,6 +38,25 @@ export interface MarketStats {
   totalVolume: bigint;
   impliedOddsA: number;
   impliedOddsB: number;
+}
+
+export interface LeaderboardEntry {
+  bettor: string;
+  totalStaked: bigint;
+  betCount: number;
+}
+
+export interface CreateMarketDTO {
+  id: string;
+  contractAddress: string;
+  fighterA: object;
+  fighterB: object;
+  scheduledAt: Date;
+  bettingEndsAt: Date;
+  createdAt: Date;
+  createdBy: string;
+  oracleAddress: string;
+  txHash?: string;
 }
 
 const PROTOCOL_FEE_RATE = 0.02; // 2% protocol fee
@@ -50,25 +78,6 @@ export function calculateImpliedOdds(
   const impliedOddsB = poolB > 0n ? netPool / Number(poolB) : 0;
 
   return { impliedOddsA, impliedOddsB };
-}
-
-export interface LeaderboardEntry {
-  bettor: string;
-  totalStaked: bigint;
-  betCount: number;
-}
-
-export interface CreateMarketDTO {
-  id: string;
-  contractAddress: string;
-  fighterA: object;
-  fighterB: object;
-  scheduledAt: Date;
-  bettingEndsAt: Date;
-  createdAt: Date;
-  createdBy: string;
-  oracleAddress: string;
-  txHash?: string;
 }
 
 export async function getAllMarkets(
@@ -103,49 +112,7 @@ export async function getMarketById(market_id: string): Promise<Market | null> {
   return db.market.findUnique({ where: { id: market_id } });
 }
 
-/**
- * Lists markets created by a given address.
- * Paginated, indexed query — no full table scan.
- */
-export async function getMarketsByCreator(
-  createdBy: string,
-  pagination?: Pagination
-): Promise<{ data: Market[]; total: number }> {
-  const page = pagination?.page ?? 1;
-  const limit = pagination?.limit ?? 20;
-
-  const [data, total] = await Promise.all([
-    db.market.findMany({
-      where: { createdBy },
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-    db.market.count({ where: { createdBy } }),
-  ]);
-
-  return { data, total };
-}
-
-/**
- * Inserts an optimistic market row immediately after a create_market tx submission.
- * Uses txHash as a temporary id so the row can be matched and reconciled later
- * by processMarketCreatedEvent without duplication.
- */
-export async function createMarketOptimistic(
-  txHash: string,
-  marketData: {
-    createdBy: string;
-    fighterA: object;
-    fighterB: object;
-    scheduledAt: Date;
-    bettingEndsAt: Date;
-    contractAddress?: string;
-    oracleAddress?: string;
-  }
-): Promise<Market> {
-  // Use txHash as the temporary ID — will be replaced when the real
-  // market_id arrives via the MarketCreated event.
+export async function createMarketRecord(marketData: CreateMarketDTO): Promise<Market> {
   return db.market.upsert({
     where: { id: txHash },
     update: {},
@@ -392,13 +359,9 @@ export async function getMarketStats(market_id: string): Promise<MarketStats> {
   const totalVolume = market.totalPool;
 
   const impliedOddsA =
-    totalVolume > 0n
-      ? Number((poolA * 10000n) / totalVolume) / 100
-      : 50;
+    totalVolume > 0n ? Number((poolA * 10000n) / totalVolume) / 100 : 50;
   const impliedOddsB =
-    totalVolume > 0n
-      ? Number((poolB * 10000n) / totalVolume) / 100
-      : 50;
+    totalVolume > 0n ? Number((poolB * 10000n) / totalVolume) / 100 : 50;
 
   return {
     totalBets,
@@ -411,8 +374,130 @@ export async function getMarketStats(market_id: string): Promise<MarketStats> {
   };
 }
 
+/**
+ * Returns a paginated leaderboard of bettors for a market, sorted by total staked descending.
+ * Groups bets by bettor and aggregates total staked and bet count.
+ */
 export async function getMarketLeaderboard(
-  market_id: string
+  market_id: string,
+  pagination?: Pagination
 ): Promise<LeaderboardEntry[]> {
-  throw new Error("Not implemented");
+  const page = pagination?.page ?? 1;
+  const limit = pagination?.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  const bets = await db.bet.findMany({
+    where: { marketId: market_id },
+    select: { bettor: true, amount: true },
+  });
+
+  // Aggregate by bettor
+  const bettorMap = new Map<string, { totalStaked: bigint; betCount: number }>();
+  for (const bet of bets) {
+    const existing = bettorMap.get(bet.bettor);
+    if (existing) {
+      existing.totalStaked += bet.amount;
+      existing.betCount += 1;
+    } else {
+      bettorMap.set(bet.bettor, { totalStaked: bet.amount, betCount: 1 });
+    }
+  }
+
+  // Sort by totalStaked desc, apply pagination
+  const sorted = Array.from(bettorMap.entries())
+    .map(([bettor, stats]) => ({ bettor, ...stats }))
+    .sort((a, b) => (b.totalStaked > a.totalStaked ? 1 : b.totalStaked < a.totalStaked ? -1 : 0));
+
+  return sorted.slice(skip, skip + limit);
+}
+
+/**
+ * Admin resolves a market with a final outcome.
+ * Updates market status to Resolved and writes an AdminLog entry.
+ */
+export async function resolveMarket(
+  marketId: string,
+  outcome: Outcome,
+  source: string,
+  admin: string
+): Promise<Market> {
+  const market = await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: MarketStatus.Resolved,
+      outcome,
+      resolvedAt: new Date(),
+    },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "RESOLVE_MARKET",
+      actor: admin,
+      target: marketId,
+      metadata: { outcome, source },
+    },
+  });
+
+  return market;
+}
+
+/**
+ * Admin cancels a market (e.g., fight postponed, insufficient liquidity).
+ * Updates market status to Cancelled and writes an AdminLog entry.
+ */
+export async function cancelMarket(
+  marketId: string,
+  admin: string,
+  reason?: string
+): Promise<Market> {
+  const market = await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: MarketStatus.Cancelled,
+      resolvedAt: new Date(),
+    },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "CANCEL_MARKET",
+      actor: admin,
+      target: marketId,
+      metadata: reason ? { reason } : undefined,
+    },
+  });
+
+  return market;
+}
+
+/**
+ * Admin resolves a disputed market with an override outcome.
+ * Writes an AdminLog entry recording the resolution.
+ */
+export async function resolveMarketDispute(
+  marketId: string,
+  overrideOutcome: Outcome,
+  admin: string,
+  resolution?: string
+): Promise<Market> {
+  const market = await prisma.market.update({
+    where: { id: marketId },
+    data: {
+      status: MarketStatus.Resolved,
+      outcome: overrideOutcome,
+      resolvedAt: new Date(),
+    },
+  });
+
+  await prisma.adminLog.create({
+    data: {
+      action: "RESOLVE_DISPUTE",
+      actor: admin,
+      target: marketId,
+      metadata: { overrideOutcome, resolution },
+    },
+  });
+
+  return market;
 }

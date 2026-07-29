@@ -36,10 +36,27 @@ export async function getBetsByAddress(
   }
 
   if (filters?.status === "claimed") {
+    // Return bets that have been claimed (winnings collected)
     where.claimed = true;
-  } else if (filters?.status === "pending") {
-    where.claimed = false;
-  } else if (filters?.status === "won" || filters?.status === "lost") {
+    return db.bet.findMany({
+      where,
+      orderBy: { placedAt: "desc" },
+    });
+  }
+
+  if (filters?.status === "pending") {
+    // Pending: market has not yet resolved (no outcome set)
+    const bets = await db.bet.findMany({
+      where,
+      include: { market: true },
+      orderBy: { placedAt: "desc" },
+    });
+    return bets.filter((bet) => bet.market.outcome === null);
+  }
+
+  if (filters?.status === "won" || filters?.status === "lost") {
+    // Won/lost: market resolved and outcome matches (or doesn't match) bet side.
+    // Includes both claimed and unclaimed bets — claimed won bets still count as "won".
     const bets = await db.bet.findMany({
       where,
       include: { market: true },
@@ -52,6 +69,7 @@ export async function getBetsByAddress(
     });
   }
 
+  // No status filter — return all bets for the address
   return db.bet.findMany({
     where,
     orderBy: { placedAt: "desc" },

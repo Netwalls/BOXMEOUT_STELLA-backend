@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { Request, Response, NextFunction } from "express";
 import * as oracleService from "../../services/oracle.service";
+import { db } from "../../db";
 
 // ---------------------------------------------------------------------------
 // Timing-safe Bearer token check for ORACLE_API_KEY
@@ -66,10 +67,66 @@ export async function submitOracleResultHandler(
 
 /**
  * GET /api/oracle/results
- * Admin-protected. Lists all submitted oracle results with confirmed status.
+ * Admin-protected. Lists paginated oracle results with optional filters.
+ *
+ * Query params:
+ *   marketId  — filter by market ID (optional)
+ *   confirmed — filter by confirmation status: "true" | "false" (optional)
+ *   page      — 1-based page number (default: 1)
+ *   pageSize  — results per page (default: 20, max: 100)
  */
-export async function listOracleResultsHandler(req: Request, res: Response): Promise<void> {
-  throw new Error("Not implemented");
+export async function listOracleResultsHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { marketId, confirmed } = req.query as {
+      marketId?: string;
+      confirmed?: string;
+    };
+
+    const page = Math.max(1, parseInt((req.query.page as string) ?? "1", 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(1, parseInt((req.query.pageSize as string) ?? "20", 10) || 20),
+    );
+
+    // Build the Prisma where clause from query params
+    const where: {
+      marketId?: string;
+      confirmed?: boolean;
+    } = {};
+
+    if (marketId) {
+      where.marketId = marketId;
+    }
+    if (confirmed !== undefined) {
+      where.confirmed = confirmed === "true";
+    }
+
+    const [total, results] = await Promise.all([
+      db.oracleResult.count({ where }),
+      db.oracleResult.findMany({
+        where,
+        orderBy: { reportedAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    res.status(200).json({
+      data: results,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 }
 
 // ─── Oracle Address Management Endpoints (Issue #455) ────────────────────────

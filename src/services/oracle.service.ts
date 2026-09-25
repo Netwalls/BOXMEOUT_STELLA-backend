@@ -1,5 +1,4 @@
-import { Dispute, Market, OracleResult, Outcome } from "@prisma/client";
-import { PrismaClient } from "@prisma/client";
+import { Dispute, Market, OracleResult, Outcome, PrismaClient } from "@prisma/client";
 import {
   SorobanRpc,
   TransactionBuilder,
@@ -12,8 +11,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { logger } from "../logger";
 import { ContractError } from "../errors";
-
-const prisma = new PrismaClient();
+import { db as prisma } from "../db";
 const RPC_URL = process.env.STELLAR_RPC_URL!;
 const NETWORK = process.env.STELLAR_NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY!;

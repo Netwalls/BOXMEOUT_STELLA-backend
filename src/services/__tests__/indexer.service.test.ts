@@ -1,7 +1,7 @@
 /**
  * Unit tests for indexer.service.ts
  *
- * All external dependencies (PrismaClient, market.service, bet.service) are
+ * All external dependencies (db singleton, market.service, bet.service) are
  * fully mocked so no real DB or network connections are needed.
  *
  * Covers:
@@ -11,7 +11,7 @@
  *   Task 4 — resume from last ledger, never reprocess on restart mid-stream
  */
 
-// ── Mock PrismaClient ────────────────────────────────────────────────────────
+// ── Mock the db singleton (#1229 B-51: indexer now uses shared db singleton) ─
 const mockFindUnique = jest.fn();
 const mockUpsert = jest.fn();
 const mockTransaction = jest.fn();
@@ -19,30 +19,30 @@ const mockCreate = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockEventLogFindUnique = jest.fn();
 const mockEventLogCreate = jest.fn();
+const mockEventLogUpsert = jest.fn();
 const mockMarketFindUnique = jest.fn();
 
-jest.mock("@prisma/client", () => {
-  return {
-    PrismaClient: jest.fn().mockImplementation(() => ({
-      indexerState: {
-        findUnique: mockFindUnique,
-        upsert: mockUpsert,
-      },
-      dispute: {
-        create: mockCreate,
-        updateMany: mockUpdateMany,
-      },
-      eventLog: {
-        findUnique: mockEventLogFindUnique,
-        create: mockEventLogCreate,
-      },
-      market: {
-        findUnique: mockMarketFindUnique,
-      },
-      $transaction: mockTransaction,
-    })),
-  };
-});
+jest.mock("../../db", () => ({
+  db: {
+    indexerState: {
+      findUnique: mockFindUnique,
+      upsert: mockUpsert,
+    },
+    dispute: {
+      create: mockCreate,
+      updateMany: mockUpdateMany,
+    },
+    eventLog: {
+      findUnique: mockEventLogFindUnique,
+      create: mockEventLogCreate,
+      upsert: mockEventLogUpsert,
+    },
+    market: {
+      findUnique: mockMarketFindUnique,
+    },
+    $transaction: mockTransaction,
+  },
+}));
 
 // ── Mock market.service ──────────────────────────────────────────────────────
 const mockCreateMarketRecord = jest.fn();
@@ -128,8 +128,10 @@ function setupTransaction() {
   mockUpdateMarketPools.mockResolvedValue(undefined);
   mockUpdateMarketStatus.mockResolvedValue({});
   mockMarkBetClaimed.mockResolvedValue({});
+  mockMarkBetClaimedByMarketAndBettor.mockResolvedValue({});
   mockEventLogFindUnique.mockResolvedValue(null); // default: event not processed yet
   mockEventLogCreate.mockResolvedValue({});
+  mockEventLogUpsert.mockResolvedValue({});
   mockMarketFindUnique.mockResolvedValue({ id: "MARKET_1" }); // market exists
 }
 

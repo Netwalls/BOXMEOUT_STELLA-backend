@@ -6,9 +6,65 @@ import * as marketService from "./market.service";
 import * as betService from "./bet.service";
 import { markBetClaimed } from "./bet.service";
 import { publishMarketEvent } from "../events/marketEvents";
+import { db } from "../db";
 
-const prisma = new PrismaClient();
 const logger = pino({ name: "indexer" });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #1228 B-50 — Contract topic → canonical handler name mapping
+//
+// On-chain topics emitted by the Soroban contracts use different casing than
+// the original switch/case. This single mapping table is the authoritative
+// source of truth — shared with C-60/C-61 naming conventions.
+//
+// Canonical name    ← on-chain topic(s)
+// ─────────────────────────────────────
+// MarketCreated     ← market_created
+// BetPlaced         ← bet_placed
+// MarketResolved    ← market_resolved
+// MarketCancelled   ← market_cancelled
+// WinningsClaimed   ← winnings_claimed
+// RefundClaimed     ← refund_claimed
+// MarketLocked      ← MarketLocked (already PascalCase on-chain)
+// DisputeRaised     ← DisputeRaised
+// DisputeResolved   ← DisputeResolved
+// FeesWithdrawn     ← FeesWithdrawn  (logged + stored; no handler yet)
+// EmrgDrain         ← EmrgDrain      (logged + stored; no handler yet)
+// ─────────────────────────────────────────────────────────────────────────────
+export const CONTRACT_TOPIC_MAP: Record<string, string> = {
+  // snake_case on-chain topics
+  market_created: "MarketCreated",
+  bet_placed: "BetPlaced",
+  market_resolved: "MarketResolved",
+  market_cancelled: "MarketCancelled",
+  winnings_claimed: "WinningsClaimed",
+  refund_claimed: "RefundClaimed",
+  market_locked: "MarketLocked",
+  dispute_raised: "DisputeRaised",
+  dispute_resolved: "DisputeResolved",
+  fees_withdrawn: "FeesWithdrawn",
+  emrg_drain: "EmrgDrain",
+  // PascalCase on-chain topics (already correct, mapped to canonical name)
+  MarketCreated: "MarketCreated",
+  BetPlaced: "BetPlaced",
+  MarketResolved: "MarketResolved",
+  MarketCancelled: "MarketCancelled",
+  WinningsClaimed: "WinningsClaimed",
+  RefundClaimed: "RefundClaimed",
+  MarketLocked: "MarketLocked",
+  DisputeRaised: "DisputeRaised",
+  DisputeResolved: "DisputeResolved",
+  FeesWithdrawn: "FeesWithdrawn",
+  EmrgDrain: "EmrgDrain",
+};
+
+/**
+ * Normalise an on-chain event topic to its canonical handler name.
+ * Returns the canonical name if known, or undefined if unknown.
+ */
+export function normaliseEventType(rawType: string): string | undefined {
+  return CONTRACT_TOPIC_MAP[rawType];
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -119,7 +175,7 @@ function sleep(ms: number): Promise<void> {
  */
 async function persistRawEvents(events: SorobanEvent[]): Promise<void> {
   for (const event of events) {
-    await prisma.eventLog.upsert({
+    await db.eventLog.upsert({
       where: {
         txHash_eventType: {
           txHash: event.txHash,
@@ -146,7 +202,7 @@ async function persistRawEvents(events: SorobanEvent[]): Promise<void> {
 async function markEventsProcessed(events: SorobanEvent[]): Promise<void> {
   const now = new Date();
   for (const event of events) {
-    await prisma.eventLog.updateMany({
+    await db.eventLog.updateMany({
       where: {
         txHash: event.txHash,
         eventType: event.type,
@@ -166,7 +222,7 @@ async function markEventsProcessed(events: SorobanEvent[]): Promise<void> {
  * Returns 0 on a fresh start with no prior indexed state.
  */
 export async function getLastIndexedLedger(): Promise<number> {
-  const state = await prisma.indexerState.findUnique({ where: { id: 1 } });
+  const state = await db.indexerState.findUnique({ where: { id: 1 } });
   return state?.lastLedger ?? 0;
 }
 
@@ -175,7 +231,7 @@ export async function getLastIndexedLedger(): Promise<number> {
  * Uses upsert on the singleton row (id=1) — atomic and safe across restarts.
  */
 export async function saveLastIndexedLedger(ledger: number): Promise<void> {
-  await prisma.indexerState.upsert({
+  await db.indexerState.upsert({
     where: { id: 1 },
     update: { lastLedger: ledger },
     create: { id: 1, lastLedger: ledger },
@@ -195,61 +251,111 @@ export async function saveLastIndexedLedger(ledger: number): Promise<void> {
  * (txHash + eventType) and skips them. Marks each event as processed on success.
  * This ensures never reprocessing already-processed events on restart (Task 4).
  */
+/**
+ * Processes all contract events in a single ledger.
+ * Routes each event to the appropriate handler by event.type.
+ * Wrapped in a Prisma interactive transaction — all handlers succeed or none persist.
+ *
+ * #1228 B-50: normalises raw on-chain topics via CONTRACT_TOPIC_MAP before routing.
+ * Unknown events for tracked contracts are logged at error level and stored in
+ * EventLog with processedAt=null so they can be replayed once a handler is added.
+ *
+ * Idempotency guarantee: checks EventLog for previously processed events
+ * (txHash + eventType) and skips them. Marks each event as processed on success.
+ * This ensures never reprocessing already-processed events on restart (Task 4).
+ */
 export async function processLedger(ledger: LedgerData): Promise<void> {
-  await prisma.$transaction(async () => {
+  await db.$transaction(async () => {
     for (const event of ledger.events) {
+      // ── #1228 B-50: normalise on-chain topic to canonical handler name ──
+      const canonicalType = normaliseEventType(event.type) ?? event.type;
+      const normalisedEvent: SorobanEvent = { ...event, type: canonicalType };
+
       // ── Task 4 + Task 3: Idempotent event processing via EventLog ──────
       // Skip events already successfully processed (safe on restart mid-stream)
-      const alreadyProcessed = await prisma.eventLog.findUnique({
-        where: { txHash_eventType: { txHash: event.txHash, eventType: event.type } },
+      const alreadyProcessed = await db.eventLog.findUnique({
+        where: { txHash_eventType: { txHash: event.txHash, eventType: canonicalType } },
       });
       if (alreadyProcessed) {
         logger.debug(
-          { eventType: event.type, txHash: event.txHash },
+          { eventType: canonicalType, txHash: event.txHash },
           "Event already processed — skipping"
         );
         continue;
       }
 
       // ── Route to handler ───────────────────────────────────────────
-      switch (event.type) {
+      switch (canonicalType) {
         case "MarketCreated":
-          await handleMarketCreatedEvent(event);
+          await handleMarketCreatedEvent(normalisedEvent);
           break;
         case "BetPlaced":
-          await handleBetPlacedEvent(event);
+          await handleBetPlacedEvent(normalisedEvent);
           break;
         case "MarketResolved":
-          await handleMarketResolvedEvent(event);
+          await handleMarketResolvedEvent(normalisedEvent);
           break;
         case "MarketCancelled":
-          await handleMarketCancelledEvent(event);
+          await handleMarketCancelledEvent(normalisedEvent);
           break;
         case "WinningsClaimed":
-          await handleWinningsClaimedEvent(event);
+          await handleWinningsClaimedEvent(normalisedEvent);
           break;
         case "RefundClaimed":
-          await handleRefundClaimedEvent(event);
+          await handleRefundClaimedEvent(normalisedEvent);
           break;
         case "MarketLocked":
-          await handleMarketLockedEvent(event);
+          await handleMarketLockedEvent(normalisedEvent);
           break;
         case "DisputeRaised":
         case "DisputeResolved":
-          await handleDisputeEvent(event);
+          await handleDisputeEvent(normalisedEvent);
           break;
-        default:
-          logger.warn(
-            { eventType: event.type, ledger: ledger.sequence },
-            "Unknown event type — skipping"
+        default: {
+          // #1228 B-50: Unknown events for tracked contracts — log at error
+          // level and persist with processedAt=null for later replay.
+          // The ledger cursor still advances so we don't stall the indexer.
+          logger.error(
+            {
+              rawEventType: event.type,
+              canonicalType,
+              contractId: event.contractId,
+              ledger: ledger.sequence,
+              txHash: event.txHash,
+            },
+            "Unknown event type for tracked contract — stored for replay"
           );
-          break;
+
+          // Store raw event with processedAt=null so it can be replayed
+          // once the handler is implemented. Uses upsert to stay idempotent.
+          await db.eventLog.upsert({
+            where: {
+              txHash_eventType: {
+                txHash: event.txHash,
+                eventType: event.type,
+              },
+            },
+            update: {}, // preserve original — do not overwrite
+            create: {
+              txHash: event.txHash,
+              eventType: event.type,
+              contractId: event.contractId,
+              ledger: event.ledger,
+              ledgerClosedAt: new Date(event.ledgerClosedAt),
+              body: event.body,
+              // processedAt intentionally left null — signals unhandled
+            },
+          });
+
+          // Do NOT mark as processed — leave processedAt null for replay
+          continue;
+        }
       }
 
       // ── Task 3: Mark event as processed (processedAt timestamp) ─────
-      await prisma.eventLog.create({
+      await db.eventLog.create({
         data: {
-          eventType: event.type,
+          eventType: canonicalType,
           contractId: event.contractId,
           ledger: event.ledger,
           txHash: event.txHash,
@@ -375,7 +481,7 @@ export async function handleMarketResolvedEvent(event: SorobanEvent): Promise<vo
   const marketId = b.market_id as string;
 
   // ── Task 1: Out-of-order guard — reject gracefully if market not yet created ──
-  const market = await prisma.market.findUnique({ where: { id: marketId } });
+  const market = await db.market.findUnique({ where: { id: marketId } });
   if (!market) {
     throw new Error(
       `Market ${marketId} not found — event arrived out of order (market_created not yet processed), will retry`
@@ -462,7 +568,7 @@ export async function handleMarketLockedEvent(event: SorobanEvent): Promise<void
 export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
   const b = event.body;
   if (event.type === "DisputeRaised") {
-    await prisma.dispute.create({
+    await db.dispute.create({
       data: {
         marketId: b.market_id as string,
         raisedBy: b.raised_by as string,
@@ -472,7 +578,7 @@ export async function handleDisputeEvent(event: SorobanEvent): Promise<void> {
     });
     await marketService.updateMarketStatus(b.market_id as string, "Disputed");
   } else if (event.type === "DisputeResolved") {
-    await prisma.dispute.updateMany({
+    await db.dispute.updateMany({
       where: { marketId: b.market_id as string, resolvedAt: null },
       data: {
         resolvedAt: toDate(event.ledgerClosedAt),

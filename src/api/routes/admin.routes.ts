@@ -12,8 +12,12 @@ import {
 } from "../controllers/oracle.controller";
 import { getAuditLogsHandler } from "../controllers/audit.controller";
 import { rateLimitMiddleware } from "../middleware/rateLimit.middleware";
+import { adminAuth } from "../middleware/adminAuth";
 
 const router = Router();
+
+// #1219: All /api/admin/* routes require Bearer ADMIN_API_KEY authentication.
+router.use(adminAuth);
 
 // Market resolution is high-stakes and infrequent — tight limit.
 const marketResolutionLimiter = rateLimitMiddleware({

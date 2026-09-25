@@ -1,13 +1,13 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import { httpLogger } from "./logger";
 import { auditLogMiddleware } from "./api/middleware/audit-log.middleware";
-import { walletAuthMiddleware } from "./api/middleware/walletAuth.middleware";
 import { errorHandlerMiddleware } from "./api/middleware/errorHandler.middleware";
 import marketRoutes from "./api/routes/market.routes";
 import betRoutes from "./api/routes/bet.routes";
 import usersRoutes from "./api/routes/users.routes";
 import adminRoutes from "./api/routes/admin.routes";
 import authRoutes from "./api/routes/auth.routes";
+import oracleRoutes from "./api/routes/oracle.routes";
 import healthRoutes from "./api/routes/health.routes";
 import docsRoutes from "./api/routes/docs.routes";
 
@@ -30,10 +30,24 @@ export function createApp(): express.Application {
   app.use("/api/users", usersRoutes);
   app.use("/api/admin", adminRoutes);
 
+  // #1220: Mount auth routes so clients can obtain wallet-auth challenges.
+  app.use("/api/auth", authRoutes);
+
+  // #1221: Mount oracle routes (protected by Bearer ORACLE_API_KEY in controller).
+  app.use("/api/oracle", oracleRoutes);
+
   // B-37: Swagger UI — dev mode only (Issue #1095)
   if (process.env.NODE_ENV !== "production") {
     app.use("/docs", docsRoutes);
   }
+
+  // #1222: 404 handler — must come after all routes.
+  app.use((_req: Request, res: Response) => {
+    res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+  });
+
+  // #1222: Centralized error handler — must be registered last.
+  app.use(errorHandlerMiddleware);
 
   return app;
 }

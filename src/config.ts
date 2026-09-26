@@ -59,6 +59,21 @@ const configSchema = z.object({
 
   /** Base URL for the external fight data provider (BoxRec or equivalent) */
   BOXREC_API_URL: z.string().url().optional(),
+
+  /**
+   * Comma-separated list of allowed CORS origins.
+   * Example: "http://localhost:3000,https://boxmeout.app"
+   * Defaults to localhost:3000 in development.
+   */
+  CORS_ORIGINS: z
+    .string()
+    .default("http://localhost:3000")
+    .transform((val) =>
+      val
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean)
+    ),
 });
 
 export type Config = z.infer<typeof configSchema>;

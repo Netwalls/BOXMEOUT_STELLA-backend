@@ -12,7 +12,6 @@ import authRoutes from "./api/routes/auth.routes";
 import oracleRoutes from "./api/routes/oracle.routes";
 import healthRoutes from "./api/routes/health.routes";
 import docsRoutes from "./api/routes/docs.routes";
-import oracleRoutes from "./api/routes/oracle.routes";
 
 export function createApp(): express.Application {
   const app = express();
@@ -50,12 +49,11 @@ export function createApp(): express.Application {
   app.use("/api/bets", betRoutes);
   app.use("/api/users", usersRoutes);
   app.use("/api/admin", adminRoutes);
-  app.use("/api/oracle", oracleRoutes);
 
   // #1220: Mount auth routes so clients can obtain wallet-auth challenges.
   app.use("/api/auth", authRoutes);
 
-  // #1221: Mount oracle routes (protected by Bearer ORACLE_API_KEY in controller).
+  // #1221: Mount oracle routes (X-Oracle-Key auth on submit, X-Admin-Key on results).
   app.use("/api/oracle", oracleRoutes);
 
   // B-37: Swagger UI — dev mode only (Issue #1095)

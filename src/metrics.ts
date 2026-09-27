@@ -5,6 +5,7 @@
  *   - Default Node.js process metrics (prom-client collectDefaultMetrics)
  *   - httpRequestDuration histogram  — HTTP request latency by method/path/status
  *   - indexerLedgerLag gauge         — latest RPC ledger minus last indexed ledger
+ *   - indexerRetentionGap counter    — times the indexer detected an RPC retention gap
  *   - lockJobSuccess / lockJobFailure counters
  *   - finalizeJobSuccess / finalizeJobFailure counters
  *
@@ -42,6 +43,20 @@ export const httpRequestDuration = new client.Histogram({
 export const indexerLedgerLag = new client.Gauge({
   name: "indexer_ledger_lag",
   help: "Number of ledgers between latest RPC ledger and last indexed ledger",
+  registers: [metricsRegistry],
+});
+
+// ─── Indexer retention gap counter ────────────────────────────────────────────
+
+/**
+ * B-63: Incremented whenever the indexer detects that its last indexed ledger
+ * is older than the Soroban RPC's oldest retained ledger. This means events in
+ * the gap have been pruned by the RPC and must be backfilled from an archive
+ * (e.g. Stellar Hubble / history archives) before indexing can resume safely.
+ */
+export const indexerRetentionGap = new client.Counter({
+  name: "indexer_retention_gap_total",
+  help: "Total number of detected Soroban RPC event retention gaps",
   registers: [metricsRegistry],
 });
 

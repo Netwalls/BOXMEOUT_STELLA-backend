@@ -6,6 +6,7 @@
  *   - httpRequestDuration histogram  — HTTP request latency by method/path/status
  *   - indexerLedgerLag gauge         — latest RPC ledger minus last indexed ledger
  *   - indexerRetentionGap counter    — times the indexer detected an RPC retention gap
+ *   - indexerConsecutiveFailures gauge — consecutive indexer RPC failures (B-64)
  *   - lockJobSuccess / lockJobFailure counters
  *   - finalizeJobSuccess / finalizeJobFailure counters
  *
@@ -57,6 +58,19 @@ export const indexerLedgerLag = new client.Gauge({
 export const indexerRetentionGap = new client.Counter({
   name: "indexer_retention_gap_total",
   help: "Total number of detected Soroban RPC event retention gaps",
+  registers: [metricsRegistry],
+});
+
+// ─── Indexer consecutive RPC failures gauge ───────────────────────────────────
+
+/**
+ * B-64: Tracks the current run of consecutive transient RPC failures in the
+ * indexer. Reset to 0 on the first successful RPC call. A rising value means
+ * the indexer is retrying with jittered exponential backoff.
+ */
+export const indexerConsecutiveFailures = new client.Gauge({
+  name: "indexer_consecutive_failures",
+  help: "Current number of consecutive indexer RPC failures",
   registers: [metricsRegistry],
 });
 

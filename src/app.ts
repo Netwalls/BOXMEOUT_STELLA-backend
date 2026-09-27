@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { httpLogger } from "./logger";
 import { auditLogMiddleware } from "./api/middleware/audit-log.middleware";
 import { errorHandlerMiddleware } from "./api/middleware/errorHandler.middleware";
@@ -12,7 +13,6 @@ import authRoutes from "./api/routes/auth.routes";
 import oracleRoutes from "./api/routes/oracle.routes";
 import healthRoutes from "./api/routes/health.routes";
 import docsRoutes from "./api/routes/docs.routes";
-import oracleRoutes from "./api/routes/oracle.routes";
 
 export function createApp(): express.Application {
   const app = express();
@@ -21,10 +21,14 @@ export function createApp(): express.Application {
     typeof value === "bigint" ? value.toString() : value
   );
 
+  // B-57: security headers
+  app.use(helmet());
+
   // B-59: attach / echo X-Request-Id before any logging or routing
   app.use(requestIdMiddleware);
 
-  app.use(express.json());
+  // B-57: cap JSON body size to mitigate oversized-payload abuse
+  app.use(express.json({ limit: "100kb" }));
   app.use(httpLogger);
 
   // B-61: Prometheus HTTP histogram — record every request after it completes

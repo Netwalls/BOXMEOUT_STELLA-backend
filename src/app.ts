@@ -13,9 +13,13 @@ import authRoutes from "./api/routes/auth.routes";
 import oracleRoutes from "./api/routes/oracle.routes";
 import healthRoutes from "./api/routes/health.routes";
 import docsRoutes from "./api/routes/docs.routes";
+import { config } from "./config";
 
 export function createApp(): express.Application {
   const app = express();
+
+  // B-58: trust proxy so req.ip reflects the real client behind a load balancer
+  app.set("trust proxy", config.trustProxy);
 
   app.set("json replacer", (_key: string, value: unknown) =>
     typeof value === "bigint" ? value.toString() : value

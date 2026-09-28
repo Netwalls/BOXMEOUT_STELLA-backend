@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
-import helmet from "helmet";
+import cors from "cors";
 import { httpLogger } from "./logger";
+import { config } from "./config";
 import { auditLogMiddleware } from "./api/middleware/audit-log.middleware";
 import { errorHandlerMiddleware } from "./api/middleware/errorHandler.middleware";
 import { requestIdMiddleware } from "./api/middleware/requestId.middleware";
@@ -13,7 +14,6 @@ import authRoutes from "./api/routes/auth.routes";
 import oracleRoutes from "./api/routes/oracle.routes";
 import healthRoutes from "./api/routes/health.routes";
 import docsRoutes from "./api/routes/docs.routes";
-import { config } from "./config";
 
 export function createApp(): express.Application {
   const app = express();
@@ -25,8 +25,14 @@ export function createApp(): express.Application {
     typeof value === "bigint" ? value.toString() : value
   );
 
-  // B-57: security headers
-  app.use(helmet());
+  // B-56: CORS — allow only the origins listed in CORS_ORIGINS env var.
+  // credentials: true lets the browser send cookies / Authorization headers.
+  app.use(
+    cors({
+      origin: config.CORS_ORIGINS,
+      credentials: true,
+    })
+  );
 
   // B-59: attach / echo X-Request-Id before any logging or routing
   app.use(requestIdMiddleware);
@@ -58,12 +64,11 @@ export function createApp(): express.Application {
   app.use("/api/bets", betRoutes);
   app.use("/api/users", usersRoutes);
   app.use("/api/admin", adminRoutes);
-  app.use("/api/oracle", oracleRoutes);
 
   // #1220: Mount auth routes so clients can obtain wallet-auth challenges.
   app.use("/api/auth", authRoutes);
 
-  // #1221: Mount oracle routes (protected by Bearer ORACLE_API_KEY in controller).
+  // #1221: Mount oracle routes (X-Oracle-Key auth on submit, X-Admin-Key on results).
   app.use("/api/oracle", oracleRoutes);
 
   // B-37: Swagger UI — dev mode only (Issue #1095)

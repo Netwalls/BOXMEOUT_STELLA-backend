@@ -2,12 +2,14 @@ import { Router } from "express";
 import {
   searchMarketsHandler,
   getMarketsHandler,
-  getMarketsByCreatorHandler,
   getMarketByIdHandler,
   getMarketStatsHandler,
   getMarketBetsHandler,
   createMarketHandler,
+  createMarketSchema,
 } from "../controllers/market.controller";
+import { walletAuthMiddleware } from "../middleware/walletAuth.middleware";
+import { validate } from "../middleware/validate";
 
 const router = Router();
 
@@ -15,9 +17,17 @@ const router = Router();
 router.get("/search", searchMarketsHandler);
 
 // GET  /api/markets
-// POST /api/markets
 router.get("/", getMarketsHandler);
-router.post("/", createMarketHandler);
+
+// POST /api/markets
+// Creator must prove wallet ownership via challenge/response (#1225 B-47).
+// Body is validated with zod before the handler runs.
+router.post(
+  "/",
+  walletAuthMiddleware(),
+  validate({ body: createMarketSchema }),
+  createMarketHandler,
+);
 
 // GET /api/markets/:id
 router.get("/:id", getMarketByIdHandler);
